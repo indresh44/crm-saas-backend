@@ -32,6 +32,15 @@ class LeadRead(LeadBase):
     updated_at: UpdatedAtMixin.__annotations__["updated_at"]
 
 
+class LeadUpdate(SQLModel):
+    title: Optional[str] = None
+    source: Optional[str] = None
+    event_date: Optional[date] = None
+    estimated_value: Optional[Decimal] = Field(default=None, decimal_places=2, max_digits=12)
+    assigned_to: Optional[uuid.UUID] = None
+    notes: Optional[str] = None
+
+
 class Lead(LeadBase, UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, table=True):
     __tablename__ = "leads"
     __table_args__ = (
@@ -67,3 +76,7 @@ class LeadActivity(LeadActivityBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=
 
     lead_id: uuid.UUID = Field(foreign_key="leads.id", index=True)
     created_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+
+
+class LeadMoveRequest(SQLModel):
+    stage_id: uuid.UUID

@@ -16,16 +16,83 @@ branch_labels = None
 depends_on = None
 
 
-user_role = sa.Enum("owner", "manager", "staff", name="user_role")
-lead_activity_type = sa.Enum("call", "whatsapp", "meeting", "note", "status_change", name="lead_activity_type")
-quote_status = sa.Enum("draft", "sent", "accepted", "rejected", name="quote_status")
-booking_status = sa.Enum("confirmed", "in_progress", "completed", "cancelled", name="booking_status")
-invoice_status = sa.Enum("draft", "sent", "paid", "partial", "overdue", name="invoice_status")
-payment_method = sa.Enum("upi", "cash", "bank_transfer", "card", name="payment_method")
-task_status = sa.Enum("pending", "in_progress", "done", name="task_status")
-attachment_entity_type = sa.Enum("lead", "quote", "invoice", "task", name="attachment_entity_type")
-message_direction = sa.Enum("incoming", "outgoing", name="message_direction")
-message_channel = sa.Enum("whatsapp", "sms", "email", name="message_channel")
+user_role = postgresql.ENUM(
+    "owner",
+    "manager",
+    "staff",
+    name="user_role",
+    create_type=False,
+)
+lead_activity_type = postgresql.ENUM(
+    "call",
+    "whatsapp",
+    "meeting",
+    "note",
+    "status_change",
+    name="lead_activity_type",
+    create_type=False,
+)
+quote_status = postgresql.ENUM(
+    "draft",
+    "sent",
+    "accepted",
+    "rejected",
+    name="quote_status",
+    create_type=False,
+)
+booking_status = postgresql.ENUM(
+    "confirmed",
+    "in_progress",
+    "completed",
+    "cancelled",
+    name="booking_status",
+    create_type=False,
+)
+invoice_status = postgresql.ENUM(
+    "draft",
+    "sent",
+    "paid",
+    "partial",
+    "overdue",
+    name="invoice_status",
+    create_type=False,
+)
+payment_method = postgresql.ENUM(
+    "upi",
+    "cash",
+    "bank_transfer",
+    "card",
+    name="payment_method",
+    create_type=False,
+)
+task_status = postgresql.ENUM(
+    "pending",
+    "in_progress",
+    "done",
+    name="task_status",
+    create_type=False,
+)
+attachment_entity_type = postgresql.ENUM(
+    "lead",
+    "quote",
+    "invoice",
+    "task",
+    name="attachment_entity_type",
+    create_type=False,
+)
+message_direction = postgresql.ENUM(
+    "incoming",
+    "outgoing",
+    name="message_direction",
+    create_type=False,
+)
+message_channel = postgresql.ENUM(
+    "whatsapp",
+    "sms",
+    "email",
+    name="message_channel",
+    create_type=False,
+)
 
 
 def upgrade() -> None:
