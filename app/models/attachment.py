@@ -6,14 +6,19 @@ from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import AttachmentEntityType
 
 
-class AttachmentBase(SQLModel):
-    business_id: uuid.UUID
+class AttachmentFields(SQLModel):
+    """Fields supplied on create; business_id is injected from current user."""
+
     entity_type: AttachmentEntityType
     entity_id: uuid.UUID
     file_url: str
 
 
-class AttachmentCreate(AttachmentBase):
+class AttachmentBase(AttachmentFields):
+    business_id: uuid.UUID
+
+
+class AttachmentCreate(AttachmentFields):
     pass
 
 

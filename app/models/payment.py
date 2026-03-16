@@ -9,16 +9,21 @@ from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import PaymentMethod
 
 
-class PaymentBase(SQLModel):
+class PaymentFields(SQLModel):
+    """Fields supplied on create; business_id is injected from current user."""
+
     invoice_id: uuid.UUID
-    business_id: uuid.UUID
     amount: Decimal = Field(decimal_places=2, max_digits=12)
     payment_method: PaymentMethod
     payment_date: date
     reference: Optional[str] = None
 
 
-class PaymentCreate(PaymentBase):
+class PaymentBase(PaymentFields):
+    business_id: uuid.UUID
+
+
+class PaymentCreate(PaymentFields):
     pass
 
 

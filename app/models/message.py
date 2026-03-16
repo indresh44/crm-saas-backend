@@ -7,8 +7,9 @@ from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import MessageChannel, MessageDirection
 
 
-class MessageBase(SQLModel):
-    business_id: uuid.UUID
+class MessageFields(SQLModel):
+    """Fields supplied on create; business_id is injected from current user."""
+
     customer_id: Optional[uuid.UUID] = None
     lead_id: Optional[uuid.UUID] = None
     direction: MessageDirection
@@ -17,7 +18,11 @@ class MessageBase(SQLModel):
     status: str
 
 
-class MessageCreate(MessageBase):
+class MessageBase(MessageFields):
+    business_id: uuid.UUID
+
+
+class MessageCreate(MessageFields):
     pass
 
 

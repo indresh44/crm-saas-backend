@@ -7,15 +7,20 @@ from sqlmodel import Field, SQLModel
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 
 
-class CustomerBase(SQLModel):
-    business_id: uuid.UUID
+class CustomerFields(SQLModel):
+    """Fields supplied on create; business_id is injected from current user."""
+
     name: str
     phone: str
     email: Optional[str] = None
     notes: Optional[str] = None
 
 
-class CustomerCreate(CustomerBase):
+class CustomerBase(CustomerFields):
+    business_id: uuid.UUID
+
+
+class CustomerCreate(CustomerFields):
     pass
 
 

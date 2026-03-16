@@ -2,7 +2,9 @@ from fastapi import FastAPI
 
 from app.api.v1.attachments import router as attachments_router
 from app.api.v1.bookings import router as bookings_router
+from app.api.v1.businesses import router as businesses_router
 from app.api.v1.customers import router as customers_router
+from app.api.v1.users import router as users_router
 from app.api.v1.invoices import router as invoices_router
 from app.api.v1.lead_activities import router as lead_activities_router
 from app.api.v1.leads import router as leads_router
@@ -13,6 +15,10 @@ from app.api.v1.pipeline_stages import router as pipeline_stages_router
 from app.api.v1.pipelines import router as pipelines_router
 from app.api.v1.quotes import router as quotes_router
 from app.api.v1.tasks import router as tasks_router
+from app.api.v1.whatsapp_accounts import router as whatsapp_accounts_router
+from app.api.v1.whatsapp_conversations import router as whatsapp_conversations_router
+from app.api.v1.whatsapp_messages import router as whatsapp_messages_router
+from app.api.v1.whatsapp_webhooks import router as whatsapp_webhooks_router
 
 app = FastAPI(
     title="CRM API",
@@ -22,6 +28,8 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
+app.include_router(businesses_router, prefix="/api/v1", tags=["businesses"])
+app.include_router(users_router, prefix="/api/v1", tags=["users"])
 app.include_router(customers_router, prefix="/api/v1", tags=["customers"])
 app.include_router(leads_router, prefix="/api/v1", tags=["leads"])
 app.include_router(lead_activities_router, prefix="/api/v1", tags=["lead-activities"])
@@ -35,6 +43,10 @@ app.include_router(tasks_router, prefix="/api/v1", tags=["tasks"])
 app.include_router(attachments_router, prefix="/api/v1", tags=["attachments"])
 app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])
 app.include_router(messages_router, prefix="/api/v1", tags=["messages"])
+app.include_router(whatsapp_accounts_router, prefix="/api/v1", tags=["whatsapp-accounts"])
+app.include_router(whatsapp_conversations_router, prefix="/api/v1", tags=["whatsapp-conversations"])
+app.include_router(whatsapp_messages_router, prefix="/api/v1", tags=["whatsapp-messages"])
+app.include_router(whatsapp_webhooks_router, prefix="/api/v1", tags=["whatsapp-webhooks"])
 
 
 @app.get("/health")

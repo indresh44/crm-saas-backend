@@ -8,8 +8,9 @@ from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import TaskStatus
 
 
-class TaskBase(SQLModel):
-    business_id: uuid.UUID
+class TaskFields(SQLModel):
+    """Fields supplied on create; business_id is injected from current user."""
+
     lead_id: uuid.UUID
     title: str
     status: TaskStatus = TaskStatus.PENDING
@@ -17,7 +18,11 @@ class TaskBase(SQLModel):
     due_date: Optional[date] = None
 
 
-class TaskCreate(TaskBase):
+class TaskBase(TaskFields):
+    business_id: uuid.UUID
+
+
+class TaskCreate(TaskFields):
     pass
 
 

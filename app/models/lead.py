@@ -10,8 +10,9 @@ from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin, UpdatedAtMixi
 from app.models.enums import LeadActivityType
 
 
-class LeadBase(SQLModel):
-    business_id: uuid.UUID
+class LeadFields(SQLModel):
+    """Fields supplied on create; business_id is injected from current user."""
+
     customer_id: uuid.UUID
     stage_id: uuid.UUID
     title: str
@@ -22,7 +23,11 @@ class LeadBase(SQLModel):
     notes: Optional[str] = None
 
 
-class LeadCreate(LeadBase):
+class LeadBase(LeadFields):
+    business_id: uuid.UUID
+
+
+class LeadCreate(LeadFields):
     pass
 
 

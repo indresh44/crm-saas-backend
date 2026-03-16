@@ -8,8 +8,9 @@ from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import InvoiceStatus
 
 
-class InvoiceBase(SQLModel):
-    business_id: uuid.UUID
+class InvoiceFields(SQLModel):
+    """Fields supplied on create; business_id is injected from current user."""
+
     booking_id: uuid.UUID
     invoice_number: str
     total_amount: Decimal = Field(decimal_places=2, max_digits=12)
@@ -18,7 +19,11 @@ class InvoiceBase(SQLModel):
     due_date: date
 
 
-class InvoiceCreate(InvoiceBase):
+class InvoiceBase(InvoiceFields):
+    business_id: uuid.UUID
+
+
+class InvoiceCreate(InvoiceFields):
     pass
 
 

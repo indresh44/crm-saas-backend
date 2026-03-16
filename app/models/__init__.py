@@ -18,6 +18,26 @@ from app.models.pipeline import (
 from app.models.quote import Quote, QuoteCreate, QuoteItem, QuoteItemCreate, QuoteItemRead, QuoteRead
 from app.models.task import Task, TaskCreate, TaskRead
 from app.models.user import User, UserCreate, UserRead
+from app.models.whatsapp_account import (
+    WhatsAppAccount,
+    WhatsAppAccountCreate,
+    WhatsAppAccountRead,
+)
+from app.models.whatsapp_conversation import (
+    WhatsAppConversation,
+    WhatsAppConversationLink,
+    WhatsAppConversationRead,
+)
+from app.models.whatsapp_message import (
+    WhatsAppMessage,
+    WhatsAppMessageRead,
+    WhatsAppMessageSendDocument,
+    WhatsAppMessageSendText,
+)
+from app.models.whatsapp_message_event import (
+    WhatsAppMessageEvent,
+    WhatsAppMessageEventRead,
+)
 
 __all__ = [
     "Attachment",
@@ -68,4 +88,16 @@ __all__ = [
     "User",
     "UserCreate",
     "UserRead",
+    "WhatsAppAccount",
+    "WhatsAppAccountCreate",
+    "WhatsAppAccountRead",
+    "WhatsAppConversation",
+    "WhatsAppConversationLink",
+    "WhatsAppConversationRead",
+    "WhatsAppMessage",
+    "WhatsAppMessageRead",
+    "WhatsAppMessageSendDocument",
+    "WhatsAppMessageSendText",
+    "WhatsAppMessageEvent",
+    "WhatsAppMessageEventRead",
 ]

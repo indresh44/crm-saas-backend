@@ -1,0 +1,1 @@
+{"sessionId": "ee99b1", "hypothesisId": "A", "location": "dependencies.py:import", "message": "Python version", "data": {"version_info": [3, 9, 6, "final", 0], "version": "3.9.6 (default, Oct 17 2025, 17:15:53) \n[Clang 17.0.0 (clang-1700.4.4.1)]"}, "timestamp": 1773492121674}

@@ -8,16 +8,21 @@ from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import QuoteStatus
 
 
-class QuoteBase(SQLModel):
+class QuoteFields(SQLModel):
+    """Fields supplied on create; business_id is injected from current user."""
+
     lead_id: uuid.UUID
-    business_id: uuid.UUID
     title: str
     description: Optional[str] = None
     total_amount: Decimal = Field(decimal_places=2, max_digits=12)
     status: QuoteStatus = QuoteStatus.DRAFT
 
 
-class QuoteCreate(QuoteBase):
+class QuoteBase(QuoteFields):
+    business_id: uuid.UUID
+
+
+class QuoteCreate(QuoteFields):
     pass
 
 

@@ -66,3 +66,36 @@ class MessageChannel(str, Enum):
     WHATSAPP = "whatsapp"
     SMS = "sms"
     EMAIL = "email"
+
+
+class WhatsAppMessageDirection(str, Enum):
+    INCOMING = "incoming"
+    OUTGOING = "outgoing"
+
+
+class WhatsAppMessageType(str, Enum):
+    TEXT = "text"
+    IMAGE = "image"
+    DOCUMENT = "document"
+    AUDIO = "audio"
+    VIDEO = "video"
+    INTERACTIVE = "interactive"
+    TEMPLATE = "template"
+    UNKNOWN = "unknown"
+
+
+class WhatsAppMessageStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    SENT = "sent"
+    DELIVERED = "delivered"
+    READ = "read"
+    FAILED = "failed"
+
+
+class WhatsAppMessageEventType(str, Enum):
+    WEBHOOK_RECEIVED = "webhook_received"
+    SENT = "sent"
+    DELIVERED = "delivered"
+    READ = "read"
+    FAILED = "failed"

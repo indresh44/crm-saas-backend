@@ -5,12 +5,17 @@ from sqlmodel import Field, SQLModel
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 
 
-class PipelineBase(SQLModel):
-    business_id: uuid.UUID
+class PipelineFields(SQLModel):
+    """Fields supplied on create; business_id is injected from current user."""
+
     name: str
 
 
-class PipelineCreate(PipelineBase):
+class PipelineBase(PipelineFields):
+    business_id: uuid.UUID
+
+
+class PipelineCreate(PipelineFields):
     pass
 
 
