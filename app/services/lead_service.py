@@ -1,7 +1,8 @@
+from datetime import datetime, time, timedelta, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.models.enums import LeadActivityType
 from app.models.lead import Lead, LeadActivity, LeadCreate, LeadUpdate
@@ -48,6 +49,18 @@ def get_lead(session: Session, current_user: User, lead_id: UUID) -> Lead:
 
 def list_leads(session: Session, current_user: User) -> list[Lead]:
     return list_leads_for_business(session, business_id=current_user.business_id)
+
+
+def get_todays_followups(session: Session, business_id: UUID) -> list[Lead]:
+    today_start = datetime.combine(datetime.now(timezone.utc).date(), time.min, tzinfo=timezone.utc)
+    today_end = today_start + timedelta(days=1)
+    statement = select(Lead).where(
+        Lead.business_id == business_id,
+        Lead.follow_up_at.is_not(None),
+        Lead.follow_up_at >= today_start,
+        Lead.follow_up_at < today_end,
+    )
+    return list(session.exec(statement).all())
 
 
 def update_lead(
@@ -107,4 +120,3 @@ def move_lead_stage(
     create_lead_activity(session, activity)
 
     return updated_lead
-

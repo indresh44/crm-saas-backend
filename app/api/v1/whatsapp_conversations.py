@@ -8,10 +8,12 @@ from app.core.database import get_session
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.whatsapp_conversation import (
+    FindOrCreateConversationByLeadRequest,
     WhatsAppConversationLink,
     WhatsAppConversationRead,
 )
 from app.services.whatsapp_conversation_service import (
+    find_or_create_by_lead,
     get_conversation,
     link_conversation,
     list_conversations,
@@ -66,5 +68,22 @@ def link_whatsapp_conversation(
         current_user=current_user,
         conversation_id=conversation_id,
         data=payload,
+    )
+    return to_read(conv)
+
+
+@router.post(
+    "/whatsapp/conversations/find-or-create-by-lead",
+    response_model=WhatsAppConversationRead,
+)
+def find_or_create_whatsapp_conversation_by_lead(
+    payload: FindOrCreateConversationByLeadRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> WhatsAppConversationRead:
+    conv = find_or_create_by_lead(
+        session=session,
+        business_id=current_user.business_id,
+        lead_id=payload.lead_id,
     )
     return to_read(conv)

@@ -3,17 +3,19 @@
 ## Table of Contents
 
 1. [Project Overview](#project-overview)
-2. [Technology Stack](#technology-stack)
-3. [Project Structure](#project-structure)
-4. [Architecture](#architecture)
-5. [Data Models](#data-models)
-6. [API Endpoints](#api-endpoints)
-7. [Services Layer](#services-layer)
-8. [Repository Layer](#repository-layer)
-9. [Database Design](#database-design)
-10. [Workflow](#workflow)
-11. [Configuration](#configuration)
-12. [Development Guide](#development-guide)
+2. [Current Project Status](#current-project-status)
+3. [Technology Stack](#technology-stack)
+4. [Project Structure](#project-structure)
+5. [Architecture](#architecture)
+6. [Data Models](#data-models)
+7. [API Endpoints](#api-endpoints)
+8. [Services Layer](#services-layer)
+9. [Repository Layer](#repository-layer)
+10. [Database Design](#database-design)
+11. [Workflow](#workflow)
+12. [Configuration](#configuration)
+13. [Development Guide](#development-guide)
+14. [Summary](#summary)
 
 ---
 
@@ -36,6 +38,32 @@ This is a **SaaS CRM system** designed for small service businesses such as:
 - Simple and intuitive to use
 - WhatsApp integration support
 - Scalable for multiple businesses
+
+---
+
+## Current Project Status
+
+Snapshot date: **2026-03-17**
+
+### Implemented and Available
+
+- Layered backend architecture is in place (`api -> services -> repositories -> models`).
+- Core CRM APIs are implemented for businesses, users, customers, leads, lead activities, pipelines, pipeline stages, quotes, bookings, invoices, payments, tasks, attachments, messages, and notifications.
+- WhatsApp APIs are implemented for account management, conversations, messaging, and webhooks.
+- Health and API docs endpoints are available (`/health`, `/api/docs`, `/api/redoc`).
+- Alembic migrations `0001` through `0004` are present in the repository.
+
+### In Progress (Local Workspace Changes)
+
+- Customer phone normalization is being introduced:
+- New helper added at `app/core/phone.py`.
+- New migration draft added: `0005_add_customer_phone_normalized.py`.
+- Customer and WhatsApp conversation modules have active local edits not yet committed.
+
+### Pending / Not Yet Implemented
+
+- Automated test suite is not present yet (no `tests/` directory in the repository).
+- Redis is provisioned in `docker-compose.yml` but not yet integrated in application code for caching/background workflows.
 
 ---
 

@@ -11,6 +11,7 @@ from app.models.user import User
 from app.services.lead_service import (
     create_lead as service_create_lead,
     get_lead as service_get_lead,
+    get_todays_followups as service_get_todays_followups,
     list_leads as service_list_leads,
     move_lead_stage as service_move_lead_stage,
     update_lead as service_update_lead,
@@ -31,10 +32,17 @@ def create_lead(
 
 @router.get("/leads", response_model=List[LeadRead])
 def list_leads(
+    follow_up_today: bool = False,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> List[LeadRead]:
-    leads = service_list_leads(session=session, current_user=current_user)
+    if follow_up_today:
+        leads = service_get_todays_followups(
+            session=session,
+            business_id=current_user.business_id,
+        )
+    else:
+        leads = service_list_leads(session=session, current_user=current_user)
     return leads
 
 
@@ -78,4 +86,3 @@ def move_lead(
         new_stage_id=payload.stage_id,
     )
     return lead
-

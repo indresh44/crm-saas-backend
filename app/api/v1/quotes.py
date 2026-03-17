@@ -5,7 +5,8 @@ from sqlmodel import Session
 
 from app.core.database import get_session
 from app.core.dependencies import get_current_user
-from app.models.quote import QuoteRead, QuoteItemRead
+from app.models.quote import QuoteRead
+from app.models.quote_item import QuoteItemRead
 from app.models.user import User
 from app.services.quote_service import (
     QuoteCreateWithItems,
@@ -75,4 +76,3 @@ def list_quote_items(
         quote_id=quote_id,
     )
     return service_list_quote_items(session, quote_id=quote_id)
-

@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 from decimal import Decimal
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlmodel import Session
+from sqlmodel import SQLModel, Session
 
 from app.models.enums import QuoteStatus
 from app.models.lead import Lead
-from app.models.quote import Quote, QuoteCreate, QuoteItem
+from app.models.quote import Quote
+from app.models.quote_item import QuoteItem, QuoteItemCreate
 from app.models.user import User
 from app.repositories.booking_repository import create_booking as repo_create_booking
 from app.repositories.lead_repository import get_lead_by_id
@@ -23,31 +23,11 @@ from app.repositories.quote_repository import (
 )
 
 
-@dataclass
-class QuoteItemInput:
-    name: str
-    quantity: Decimal
-    price: Decimal
-
-    @property
-    def total(self) -> Decimal:
-        return self.quantity * self.price
-
-
 def _build_quote_items(
     quote_id: UUID,
-    items: List[QuoteItemInput],
+    items: List[QuoteItemCreate],
 ) -> List[QuoteItem]:
-    return [
-        QuoteItem(
-            quote_id=quote_id,
-            name=item.name,
-            quantity=item.quantity,
-            price=item.price,
-            total=item.total,
-        )
-        for item in items
-    ]
+    return [item.build_model(quote_id=quote_id) for item in items]
 
 
 def create_quote(
@@ -58,7 +38,7 @@ def create_quote(
     lead = get_lead_by_id(
         session=session,
         business_id=current_user.business_id,
-        lead_id=data.lead_id,
+        lead_id=data.quote.lead_id,
     )
     if lead is None:
         raise HTTPException(
@@ -71,11 +51,12 @@ def create_quote(
     quote = Quote(**quote_data)
     quote = repo_create_quote(session, quote)
 
-    items = _build_quote_items(
-        quote_id=quote.id,
-        items=[QuoteItemInput(**asdict(item)) for item in data.items],
-    )
-    replace_quote_items(session, quote_id=quote.id, items=items)
+    if data.items:
+        items = _build_quote_items(
+            quote_id=quote.id,
+            items=data.items,
+        )
+        replace_quote_items(session, quote_id=quote.id, items=items)
 
     return quote
 
@@ -121,7 +102,7 @@ def update_quote(
     if data.items is not None:
         items = _build_quote_items(
             quote_id=quote.id,
-            items=[QuoteItemInput(**asdict(item)) for item in data.items],
+            items=data.items,
         )
         replace_quote_items(session, quote_id=quote.id, items=items)
 
@@ -160,11 +141,6 @@ def _ensure_booking_for_quote(
         )
 
 
-from dataclasses import dataclass  # noqa: E402  (re-import for type-only use)
-from typing import Optional  # noqa: E402
-from sqlmodel import SQLModel  # noqa: E402
-
-
 class QuoteData(SQLModel):
     lead_id: UUID
     title: str
@@ -173,19 +149,11 @@ class QuoteData(SQLModel):
     status: QuoteStatus = QuoteStatus.DRAFT
 
 
-@dataclass
-class QuoteItemPayload:
-    name: str
-    quantity: Decimal
-    price: Decimal
-
-
 class QuoteCreateWithItems(SQLModel):
     quote: QuoteData
-    items: List[QuoteItemPayload]
+    items: Optional[List[QuoteItemCreate]] = None
 
 
 class QuoteUpdateWithItems(SQLModel):
     quote: QuoteData
-    items: Optional[List[QuoteItemPayload]] = None
-
+    items: Optional[List[QuoteItemCreate]] = None

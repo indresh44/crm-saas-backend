@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 import uuid
@@ -21,7 +21,8 @@ class LeadFields(SQLModel):
     stage_id: uuid.UUID
     title: str
     source: Optional[str] = None
-    event_date: Optional[date] = None
+    service_date: Optional[date] = None
+    follow_up_at: Optional[datetime] = Field(default=None, nullable=True)
     estimated_value: Optional[Decimal] = Field(default=None, decimal_places=2, max_digits=12)
     assigned_to: Optional[uuid.UUID] = None
     notes: Optional[str] = None
@@ -44,7 +45,8 @@ class LeadRead(LeadBase):
 class LeadUpdate(SQLModel):
     title: Optional[str] = None
     source: Optional[str] = None
-    event_date: Optional[date] = None
+    service_date: Optional[date] = None
+    follow_up_at: Optional[datetime] = Field(default=None, nullable=True)
     estimated_value: Optional[Decimal] = Field(default=None, decimal_places=2, max_digits=12)
     assigned_to: Optional[uuid.UUID] = None
     notes: Optional[str] = None

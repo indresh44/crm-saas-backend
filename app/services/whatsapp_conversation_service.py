@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
+from app.core.phone import normalize_phone_value
 from app.models.common import utcnow
 from app.models.lead import Lead
 from app.models.user import User
@@ -12,13 +13,19 @@ from app.models.whatsapp_conversation import (
     WhatsAppConversationLink,
     WhatsAppConversationRead,
 )
+from app.repositories.customer_repository import get_customer_by_id
 from app.repositories.customer_repository import get_customers_by_phone
+from app.repositories.lead_repository import get_lead_by_id
+from app.repositories.whatsapp_account_repository import get_active_whatsapp_account_for_business
 from app.repositories.whatsapp_account_repository import get_whatsapp_account_by_id
 from app.repositories.whatsapp_conversation_repository import (
+    create_conversation,
     create_whatsapp_conversation,
+    get_by_phone,
     get_whatsapp_conversation_by_id,
     get_whatsapp_conversation_by_phone,
     list_whatsapp_conversations_for_business,
+    update_conversation,
     update_whatsapp_conversation,
 )
 
@@ -124,6 +131,89 @@ def find_or_create_conversation(
         opened_at=now,
     )
     return create_whatsapp_conversation(session, conv)
+
+
+def find_or_create_by_lead(
+    session: Session,
+    business_id: UUID,
+    lead_id: UUID,
+) -> WhatsAppConversation:
+    lead = get_lead_by_id(session, business_id=business_id, lead_id=lead_id)
+    if lead is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lead not found",
+        )
+
+    if lead.customer_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Lead has no customer",
+        )
+
+    customer = get_customer_by_id(
+        session,
+        business_id=business_id,
+        customer_id=lead.customer_id,
+    )
+    if customer is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Lead has no customer",
+        )
+
+    if not customer.phone:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Customer phone number is required to start WhatsApp chat",
+        )
+
+    normalized_phone = normalize_phone_value(customer.phone)
+    if not normalized_phone:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Customer phone number is required to start WhatsApp chat",
+        )
+
+    account = get_active_whatsapp_account_for_business(session, business_id)
+    if account is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No WhatsApp account configured for this business",
+        )
+
+    conversation = get_by_phone(
+        session,
+        business_id=business_id,
+        phone_number=normalized_phone,
+        whatsapp_account_id=account.id,
+    )
+    if conversation is not None:
+        if conversation.lead_id == lead.id:
+            return conversation
+
+        # TODO:
+        # In future, only allow reassignment if existing lead is closed/inactive.
+        # For now, we allow reassignment unconditionally.
+        conversation.lead_id = lead.id
+        conversation.customer_id = lead.customer_id
+        if customer.name and conversation.contact_name != customer.name:
+            conversation.contact_name = customer.name
+        return update_conversation(session, conversation)
+
+    now = utcnow()
+    new_conversation = WhatsAppConversation(
+        business_id=business_id,
+        whatsapp_account_id=account.id,
+        phone_number=normalized_phone,
+        contact_name=customer.name,
+        customer_id=customer.id,
+        lead_id=lead.id,
+        is_blocked=False,
+        last_message_at=now,
+        opened_at=now,
+    )
+    return create_conversation(session, new_conversation)
 
 
 def to_read(conv: WhatsAppConversation) -> WhatsAppConversationRead:

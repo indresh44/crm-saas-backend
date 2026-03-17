@@ -60,6 +60,7 @@ def list_tasks(session: Session, current_user: User) -> List[Task]:
 
 
 class TaskUpdate(SQLModel):
+    lead_id: Optional[UUID] = None
     title: Optional[str] = None
     status: Optional[str] = None
     assigned_to: Optional[UUID] = None
@@ -77,4 +78,3 @@ def update_task(
     for field, value in update_data.items():
         setattr(task, field, value)
     return repo_update_task(session, task)
-

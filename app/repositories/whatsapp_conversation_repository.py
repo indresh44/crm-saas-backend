@@ -16,6 +16,13 @@ def create_whatsapp_conversation(
     return conversation
 
 
+def create_conversation(
+    session: Session,
+    conversation: WhatsAppConversation,
+) -> WhatsAppConversation:
+    return create_whatsapp_conversation(session, conversation)
+
+
 def get_whatsapp_conversation_by_id(
     session: Session,
     business_id: UUID,
@@ -39,6 +46,23 @@ def get_whatsapp_conversation_by_phone(
         WhatsAppConversation.whatsapp_account_id == whatsapp_account_id,
         WhatsAppConversation.phone_number == phone_number,
     )
+    return session.exec(statement).first()
+
+
+def get_by_phone(
+    session: Session,
+    business_id: UUID,
+    phone_number: str,
+    whatsapp_account_id: UUID | None = None,
+) -> Optional[WhatsAppConversation]:
+    statement = select(WhatsAppConversation).where(
+        WhatsAppConversation.business_id == business_id,
+        WhatsAppConversation.phone_number == phone_number,
+    )
+    if whatsapp_account_id is not None:
+        statement = statement.where(
+            WhatsAppConversation.whatsapp_account_id == whatsapp_account_id,
+        )
     return session.exec(statement).first()
 
 
@@ -67,3 +91,10 @@ def update_whatsapp_conversation(
     session.commit()
     session.refresh(conversation)
     return conversation
+
+
+def update_conversation(
+    session: Session,
+    conversation: WhatsAppConversation,
+) -> WhatsAppConversation:
+    return update_whatsapp_conversation(session, conversation)

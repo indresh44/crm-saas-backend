@@ -16,7 +16,7 @@ def _task_status_values(enum_class: type[TaskStatus]) -> list[str]:
 class TaskFields(SQLModel):
     """Fields supplied on create; business_id is injected from current user."""
 
-    lead_id: uuid.UUID
+    lead_id: Optional[uuid.UUID] = None
     title: str
     status: TaskStatus = TaskStatus.PENDING
     assigned_to: Optional[uuid.UUID] = None
@@ -40,7 +40,7 @@ class Task(TaskBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
     __tablename__ = "tasks"
 
     business_id: uuid.UUID = Field(foreign_key="businesses.id", index=True)
-    lead_id: uuid.UUID = Field(foreign_key="leads.id", index=True)
+    lead_id: Optional[uuid.UUID] = Field(default=None, foreign_key="leads.id", nullable=True, index=True)
     status: TaskStatus = Field(
         sa_type=SaEnum(
             TaskStatus,

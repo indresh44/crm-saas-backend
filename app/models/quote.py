@@ -1,9 +1,9 @@
 from decimal import Decimal
-from typing import Optional
+from typing import List, Optional
 import uuid
 
 from sqlalchemy import Enum as SaEnum
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import QuoteStatus
@@ -49,25 +49,4 @@ class Quote(QuoteBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
             values_callable=_quote_status_values,
         ),
     )
-
-
-class QuoteItemBase(SQLModel):
-    quote_id: uuid.UUID
-    name: str
-    quantity: Decimal = Field(decimal_places=2, max_digits=12)
-    price: Decimal = Field(decimal_places=2, max_digits=12)
-    total: Decimal = Field(decimal_places=2, max_digits=12)
-
-
-class QuoteItemCreate(QuoteItemBase):
-    pass
-
-
-class QuoteItemRead(QuoteItemBase):
-    id: uuid.UUID
-
-
-class QuoteItem(QuoteItemBase, UUIDPrimaryKeyMixin, table=True):
-    __tablename__ = "quote_items"
-
-    quote_id: uuid.UUID = Field(foreign_key="quotes.id", index=True)
+    items: List["QuoteItem"] = Relationship(back_populates="quote")

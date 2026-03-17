@@ -36,6 +36,10 @@ class WhatsAppConversationLink(SQLModel):
     customer_id: Optional[uuid.UUID] = None
 
 
+class FindOrCreateConversationByLeadRequest(SQLModel):
+    lead_id: uuid.UUID
+
+
 class WhatsAppConversation(
     WhatsAppConversationBase,
     UUIDPrimaryKeyMixin,

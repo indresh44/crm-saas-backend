@@ -18,7 +18,7 @@ def create_booking(
         lead_id=lead.id,
         quote_id=quote.id,
         business_id=business_id,
-        event_date=lead.event_date or quote.created_at.date(),
+        event_date=lead.service_date or quote.created_at.date(),
         total_amount=quote.total_amount,
     )
     session.add(booking)
@@ -42,4 +42,3 @@ def get_booking_by_id(
 def list_bookings_for_business(session: Session, business_id: UUID) -> List[Booking]:
     statement = select(Booking).where(Booking.business_id == business_id)
     return list(session.exec(statement).all())
-

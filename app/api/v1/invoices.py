@@ -6,10 +6,11 @@ from sqlmodel import Session
 
 from app.core.database import get_session
 from app.core.dependencies import get_current_user
-from app.models.invoice import InvoiceCreate, InvoiceRead
+from app.models.invoice import InvoiceRead
 from app.models.user import User
 from app.services.invoice_service import (
-    create_invoice_for_booking as service_create_invoice_for_booking,
+    InvoiceCreateWithItems,
+    create_invoice as service_create_invoice,
     get_invoice as service_get_invoice,
     list_invoices as service_list_invoices,
 )
@@ -19,15 +20,13 @@ router = APIRouter()
 
 @router.post("/invoices", response_model=InvoiceRead)
 def create_invoice(
-    booking_id: UUID,
-    payload: InvoiceCreate,
+    payload: InvoiceCreateWithItems,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> InvoiceRead:
-    invoice = service_create_invoice_for_booking(
+    invoice = service_create_invoice(
         session=session,
         current_user=current_user,
-        booking_id=booking_id,
         data=payload,
     )
     return invoice
@@ -54,4 +53,3 @@ def get_invoice(
         invoice_id=invoice_id,
     )
     return invoice
-

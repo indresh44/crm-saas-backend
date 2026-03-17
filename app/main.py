@@ -7,6 +7,7 @@ from app.api.v1.customers import router as customers_router
 from app.api.v1.users import router as users_router
 from app.api.v1.invoices import router as invoices_router
 from app.api.v1.lead_activities import router as lead_activities_router
+from app.api.v1.lead_followups import router as lead_followups_router
 from app.api.v1.leads import router as leads_router
 from app.api.v1.messages import router as messages_router
 from app.api.v1.notifications import router as notifications_router
@@ -47,6 +48,7 @@ app.include_router(users_router, prefix="/api/v1", tags=["users"])
 app.include_router(customers_router, prefix="/api/v1", tags=["customers"])
 app.include_router(leads_router, prefix="/api/v1", tags=["leads"])
 app.include_router(lead_activities_router, prefix="/api/v1", tags=["lead-activities"])
+app.include_router(lead_followups_router, prefix="/api/v1", tags=["lead-followups"])
 app.include_router(pipelines_router, prefix="/api/v1", tags=["pipelines"])
 app.include_router(pipeline_stages_router, prefix="/api/v1", tags=["pipeline-stages"])
 app.include_router(quotes_router, prefix="/api/v1", tags=["quotes"])
@@ -66,4 +68,3 @@ app.include_router(whatsapp_webhooks_router, prefix="/api/v1", tags=["whatsapp-w
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
-

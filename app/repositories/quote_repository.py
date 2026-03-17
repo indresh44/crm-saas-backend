@@ -3,7 +3,8 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
-from app.models.quote import Quote, QuoteItem
+from app.models.quote import Quote
+from app.models.quote_item import QuoteItem
 
 
 def create_quote(session: Session, quote: Quote) -> Quote:
@@ -58,4 +59,3 @@ def replace_quote_items(
     session.commit()
 
     return list_items_for_quote(session, quote_id)
-

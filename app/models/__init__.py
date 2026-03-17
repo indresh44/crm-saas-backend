@@ -1,9 +1,20 @@
 from app.models.attachment import Attachment, AttachmentCreate, AttachmentRead
 from app.models.booking import Booking, BookingCreate, BookingRead
 from app.models.business import Business, BusinessCreate, BusinessRead
-from app.models.customer import Customer, CustomerCreate, CustomerRead
+from app.models.customer import (
+    Customer,
+    CustomerCreate,
+    CustomerCreateRequest,
+    CustomerLookupResponse,
+    CustomerOutstandingResponse,
+    CustomerRead,
+    CustomerSearchResponse,
+    CustomerUpdate,
+)
 from app.models.invoice import Invoice, InvoiceCreate, InvoiceRead
+from app.models.invoice_item import InvoiceItem, InvoiceItemCreate, InvoiceItemRead
 from app.models.lead import Lead, LeadActivity, LeadActivityCreate, LeadActivityRead, LeadCreate, LeadRead
+from app.models.lead_followup import LeadFollowup, LeadFollowupCreate, LeadFollowupDone, LeadFollowupRead
 from app.models.message import Message, MessageCreate, MessageRead
 from app.models.notification import Notification, NotificationCreate, NotificationRead
 from app.models.payment import Payment, PaymentCreate, PaymentRead
@@ -15,7 +26,8 @@ from app.models.pipeline import (
     PipelineStageCreate,
     PipelineStageRead,
 )
-from app.models.quote import Quote, QuoteCreate, QuoteItem, QuoteItemCreate, QuoteItemRead, QuoteRead
+from app.models.quote import Quote, QuoteCreate, QuoteRead
+from app.models.quote_item import QuoteItem, QuoteItemCreate, QuoteItemRead
 from app.models.task import Task, TaskCreate, TaskRead
 from app.models.user import User, UserCreate, UserRead
 from app.models.whatsapp_account import (
@@ -51,15 +63,27 @@ __all__ = [
     "BusinessRead",
     "Customer",
     "CustomerCreate",
+    "CustomerCreateRequest",
+    "CustomerLookupResponse",
+    "CustomerOutstandingResponse",
     "CustomerRead",
+    "CustomerSearchResponse",
+    "CustomerUpdate",
     "Invoice",
     "InvoiceCreate",
+    "InvoiceItem",
+    "InvoiceItemCreate",
+    "InvoiceItemRead",
     "InvoiceRead",
     "Lead",
     "LeadActivity",
     "LeadActivityCreate",
     "LeadActivityRead",
     "LeadCreate",
+    "LeadFollowup",
+    "LeadFollowupCreate",
+    "LeadFollowupDone",
+    "LeadFollowupRead",
     "LeadRead",
     "Message",
     "MessageCreate",
