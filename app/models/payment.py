@@ -3,10 +3,15 @@ from decimal import Decimal
 from typing import Optional
 import uuid
 
+from sqlalchemy import Enum as SaEnum
 from sqlmodel import Field, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import PaymentMethod
+
+
+def _payment_method_values(enum_class: type[PaymentMethod]) -> list[str]:
+    return [method.value for method in enum_class]
 
 
 class PaymentFields(SQLModel):
@@ -37,3 +42,11 @@ class Payment(PaymentBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
 
     invoice_id: uuid.UUID = Field(foreign_key="invoices.id", index=True)
     business_id: uuid.UUID = Field(foreign_key="businesses.id", index=True)
+    payment_method: PaymentMethod = Field(
+        sa_type=SaEnum(
+            PaymentMethod,
+            name="payment_method",
+            create_constraint=False,
+            values_callable=_payment_method_values,
+        ),
+    )

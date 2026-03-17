@@ -2,10 +2,15 @@ from datetime import date
 from decimal import Decimal
 import uuid
 
+from sqlalchemy import Enum as SaEnum
 from sqlmodel import Field, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import BookingStatus
+
+
+def _booking_status_values(enum_class: type[BookingStatus]) -> list[str]:
+    return [status.value for status in enum_class]
 
 
 class BookingFields(SQLModel):
@@ -37,3 +42,11 @@ class Booking(BookingBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
     lead_id: uuid.UUID = Field(foreign_key="leads.id", index=True)
     quote_id: uuid.UUID = Field(foreign_key="quotes.id", index=True)
     business_id: uuid.UUID = Field(foreign_key="businesses.id", index=True)
+    status: BookingStatus = Field(
+        sa_type=SaEnum(
+            BookingStatus,
+            name="booking_status",
+            create_constraint=False,
+            values_callable=_booking_status_values,
+        ),
+    )

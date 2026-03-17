@@ -1,10 +1,19 @@
 from typing import Optional
 import uuid
 
+from sqlalchemy import Enum as SaEnum
 from sqlmodel import Field, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import MessageChannel, MessageDirection
+
+
+def _message_direction_values(enum_class: type[MessageDirection]) -> list[str]:
+    return [direction.value for direction in enum_class]
+
+
+def _message_channel_values(enum_class: type[MessageChannel]) -> list[str]:
+    return [channel.value for channel in enum_class]
 
 
 class MessageFields(SQLModel):
@@ -37,3 +46,19 @@ class Message(MessageBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
     business_id: uuid.UUID = Field(foreign_key="businesses.id", index=True)
     customer_id: Optional[uuid.UUID] = Field(default=None, foreign_key="customers.id")
     lead_id: Optional[uuid.UUID] = Field(default=None, foreign_key="leads.id")
+    direction: MessageDirection = Field(
+        sa_type=SaEnum(
+            MessageDirection,
+            name="message_direction",
+            create_constraint=False,
+            values_callable=_message_direction_values,
+        ),
+    )
+    channel: MessageChannel = Field(
+        sa_type=SaEnum(
+            MessageChannel,
+            name="message_channel",
+            create_constraint=False,
+            values_callable=_message_channel_values,
+        ),
+    )

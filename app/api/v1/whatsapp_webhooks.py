@@ -2,6 +2,7 @@
 Meta WhatsApp webhook: GET for verification, POST for incoming payloads.
 """
 
+import logging
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import PlainTextResponse
 from sqlmodel import Session
@@ -10,6 +11,7 @@ from app.core.config import settings
 from app.core.database import get_session
 from app.services.whatsapp_webhook_service import process_webhook_payload
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -39,11 +41,15 @@ async def receive_webhook(
     """Public webhook receiver; process payload and return 200 quickly."""
     try:
         payload = await request.json()
-    except Exception:
+    except Exception as e:
+        logger.error(f"Failed to parse webhook JSON: {str(e)}")
         payload = {}
+    
     if payload:
         try:
+            logger.info(f"Received webhook payload")
             process_webhook_payload(session, payload)
-        except Exception:
-            pass  # Do not fail the request; log in production
+        except Exception as e:
+            logger.error(f"Error processing webhook payload: {str(e)}", exc_info=True)
+    
     return {}

@@ -2,10 +2,15 @@ from datetime import date
 from decimal import Decimal
 import uuid
 
+from sqlalchemy import Enum as SaEnum
 from sqlmodel import Field, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import InvoiceStatus
+
+
+def _invoice_status_values(enum_class: type[InvoiceStatus]) -> list[str]:
+    return [status.value for status in enum_class]
 
 
 class InvoiceFields(SQLModel):
@@ -38,3 +43,11 @@ class Invoice(InvoiceBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
     business_id: uuid.UUID = Field(foreign_key="businesses.id", index=True)
     booking_id: uuid.UUID = Field(foreign_key="bookings.id", index=True)
     invoice_number: str = Field(index=True)
+    status: InvoiceStatus = Field(
+        sa_type=SaEnum(
+            InvoiceStatus,
+            name="invoice_status",
+            create_constraint=False,
+            values_callable=_invoice_status_values,
+        ),
+    )

@@ -1,11 +1,24 @@
 """
-Thin adapter for Meta WhatsApp Cloud API.
-Stub implementation: returns placeholder response. Replace with real httpx/PyWa later.
+WhatsApp Cloud API integration using PyWA library.
+Sends text and document messages via Meta's WhatsApp Cloud API.
 """
 
 from typing import Any
 
+from pywa import WhatsApp
+from pywa.types import Document
+
 from app.models.whatsapp_account import WhatsAppAccount
+
+
+def _create_client(account: WhatsAppAccount) -> WhatsApp:
+    """
+    Create a PyWA WhatsApp client from account credentials.
+    """
+    return WhatsApp(
+        phone_id=account.phone_number_id,
+        token=account.access_token,
+    )
 
 
 def send_text(
@@ -14,14 +27,35 @@ def send_text(
     text: str,
 ) -> dict[str, Any]:
     """
-    Send a text message via WhatsApp Cloud API.
-    Returns dict with 'messages' key containing list of { 'id': whatsapp_message_id }.
+    Send a text message via WhatsApp Cloud API using PyWA.
+    
+    Args:
+        account: WhatsAppAccount with credentials and phone_number_id
+        to_phone: Recipient phone number (11 digits, no +)
+        text: Message text content
+    
+    Returns:
+        dict with 'messages' key containing list of { 'id': whatsapp_message_id }
+    
+    Raises:
+        Exception: If API call fails
     """
-    # TODO: Replace with real POST to
-    # https://graph.facebook.com/v18.0/{phone_number_id}/messages
-    # using account.access_token. For now return stub so callers get a message id.
-    _ = account, to_phone, text
-    return {"messages": [{"id": f"stub-{id(account)}-{hash(text) % 10**8}"}]}
+    client = _create_client(account)
+    
+    response = client.send_text(
+        to=to_phone,
+        text=text,
+    )
+    
+    # PyWA returns a Message object with id attribute
+    # Convert to Meta API response format
+    return {
+        "messages": [
+            {
+                "id": response.id
+            }
+        ]
+    }
 
 
 def send_document(
@@ -32,9 +66,38 @@ def send_document(
     caption: str | None = None,
 ) -> dict[str, Any]:
     """
-    Send a document message via WhatsApp Cloud API.
-    Returns dict with 'messages' key containing list of { 'id': whatsapp_message_id }.
+    Send a document message via WhatsApp Cloud API using PyWA.
+    
+    Args:
+        account: WhatsAppAccount with credentials and phone_number_id
+        to_phone: Recipient phone number (11 digits, no +)
+        document_url: URL to the document file
+        file_name: Filename to display in WhatsApp
+        caption: Optional caption for the document
+    
+    Returns:
+        dict with 'messages' key containing list of { 'id': whatsapp_message_id }
+    
+    Raises:
+        Exception: If API call fails
     """
-    # TODO: Replace with real API call. Use PyWa or httpx when integrating.
-    _ = account, to_phone, document_url, file_name, caption
-    return {"messages": [{"id": f"stub-doc-{id(account)}-{hash(document_url) % 10**8}"}]}
+    client = _create_client(account)
+    
+    response = client.send_document(
+        to=to_phone,
+        document=Document(
+            link=document_url,
+            filename=file_name,
+        ),
+        caption=caption,
+    )
+    
+    # PyWA returns a Message object with id attribute
+    # Convert to Meta API response format
+    return {
+        "messages": [
+            {
+                "id": response.id
+            }
+        ]
+    }

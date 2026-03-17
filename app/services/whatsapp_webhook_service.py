@@ -3,6 +3,7 @@ Process Meta WhatsApp Cloud API webhook payloads: incoming messages and status u
 Uses defensive parsing; payload structure may vary.
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -30,6 +31,10 @@ from app.repositories.whatsapp_message_repository import (
 )
 from app.repositories.whatsapp_account_repository import get_whatsapp_account_by_phone_number_id
 from app.services.whatsapp_conversation_service import find_or_create_conversation
+from datetime import datetime
+import json
+
+logger = logging.getLogger(__name__)
 
 
 def process_webhook_payload(session: Session, payload: dict[str, Any]) -> None:
@@ -37,6 +42,16 @@ def process_webhook_payload(session: Session, payload: dict[str, Any]) -> None:
     Process incoming webhook: route to message handling or status handling.
     Payload: { "object": "whatsapp_business_account", "entry": [ { "id", "changes": [ { "value": {...}, "field": "messages" } ] } ] }
     """
+    # Log the incoming payload for debugging/audit purposes
+    try:
+        with open("/root/workspace/crm-saas-backend/log.txt", "a", encoding="utf-8") as log_file:
+            log_file.write(
+                f"{datetime.utcnow().isoformat()}Z - Incoming webhook payload:\n"
+                f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
+            )
+    except Exception as e:
+        # Fallback: ignore logging errors to avoid breaking webhook processing
+        pass
     entries = payload.get("entry") or []
     for entry in entries:
         if not isinstance(entry, dict):
@@ -61,22 +76,34 @@ def _process_messages_value(session: Session, value: dict[str, Any]) -> None:
     if not phone_number_id:
         phone_number_id = str(metadata.get("phone_number_id", ""))
     if not phone_number_id:
+        logger.warning("No phone_number_id in webhook metadata")
         return
 
+    logger.info(f"Processing incoming messages for phone_number_id: {phone_number_id}")
+    
     account = get_whatsapp_account_by_phone_number_id(session, str(phone_number_id))
-    if not account or not account.is_active:
+    if not account:
+        logger.error(f"WhatsApp account not found for phone_number_id: {phone_number_id}")
+        return
+    
+    if not account.is_active:
+        logger.warning(f"WhatsApp account is inactive for phone_number_id: {phone_number_id}")
         return
 
     business_id = account.business_id
     messages_list = value.get("messages") or []
     contacts_list = value.get("contacts") or []
 
+    logger.info(f"Found {len(messages_list)} messages to process for account {account.id}")
+
     for msg in messages_list:
         if not isinstance(msg, dict):
+            logger.warning("Message is not a dict, skipping")
             continue
         msg_id = msg.get("id")
         from_phone = msg.get("from")
         if not from_phone:
+            logger.warning("Message has no 'from' field, skipping")
             continue
         from_phone = str(from_phone).replace(" ", "").strip()
         timestamp = msg.get("timestamp")
@@ -86,13 +113,19 @@ def _process_messages_value(session: Session, value: dict[str, Any]) -> None:
             profile = contacts_list[0].get("profile") or {}
             contact_name = profile.get("name") if isinstance(profile, dict) else None
 
-        conv = find_or_create_conversation(
-            session,
-            business_id=business_id,
-            whatsapp_account_id=account.id,
-            phone_number=from_phone,
-            contact_name=contact_name,
-        )
+        logger.info(f"Processing message {msg_id} from {from_phone}, type: {msg_type}")
+        
+        try:
+            conv = find_or_create_conversation(
+                session,
+                business_id=business_id,
+                whatsapp_account_id=account.id,
+                phone_number=from_phone,
+                contact_name=contact_name,
+            )
+        except Exception as e:
+            logger.error(f"Failed to find or create conversation for {from_phone}: {str(e)}", exc_info=True)
+            continue
 
         text_body = None
         if msg_type == "text":
@@ -113,6 +146,16 @@ def _process_messages_value(session: Session, value: dict[str, Any]) -> None:
 
         wa_message_type = _map_message_type(msg_type)
         now = utcnow()
+        
+        # Convert timestamp from string to int if present
+        sent_at = now
+        if timestamp:
+            try:
+                sent_at = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse timestamp {timestamp}: {str(e)}")
+                sent_at = now
+        
         incoming = WhatsAppMessage(
             business_id=business_id,
             conversation_id=conv.id,
@@ -128,10 +171,15 @@ def _process_messages_value(session: Session, value: dict[str, Any]) -> None:
             file_name=file_name,
             mime_type=mime_type,
             status=WhatsAppMessageStatus.DELIVERED,
-            sent_at=datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp else now,
+            sent_at=sent_at,
             raw_payload=msg,
         )
-        create_whatsapp_message(session, incoming)
+        try:
+            created_msg = create_whatsapp_message(session, incoming)
+            logger.info(f"Successfully created message {created_msg.id} for conversation {conv.id}")
+        except Exception as e:
+            logger.error(f"Failed to create message: {str(e)}", exc_info=True)
+            continue
 
         event = WhatsAppMessageEvent(
             business_id=business_id,
@@ -140,18 +188,27 @@ def _process_messages_value(session: Session, value: dict[str, Any]) -> None:
             payload=msg,
             event_at=now,
         )
-        create_whatsapp_message_event(session, event)
+        try:
+            create_whatsapp_message_event(session, event)
+        except Exception as e:
+            logger.error(f"Failed to create message event: {str(e)}", exc_info=True)
 
-        conv.last_message_at = now
-        conv.last_incoming_at = now
-        from app.repositories.whatsapp_conversation_repository import (
-            update_whatsapp_conversation,
-        )
+        try:
+            conv.last_message_at = now
+            conv.last_incoming_at = now
+            from app.repositories.whatsapp_conversation_repository import (
+                update_whatsapp_conversation,
+            )
+            update_whatsapp_conversation(session, conv)
+            logger.info(f"Updated conversation {conv.id} timestamps")
+        except Exception as e:
+            logger.error(f"Failed to update conversation: {str(e)}", exc_info=True)
 
-        update_whatsapp_conversation(session, conv)
-
-        if conv.lead_id:
-            _create_incoming_lead_activity(session, business_id, conv.lead_id, text_body or "(media)")
+        try:
+            if conv.lead_id:
+                _create_incoming_lead_activity(session, business_id, conv.lead_id, text_body or "(media)")
+        except Exception as e:
+            logger.error(f"Failed to create lead activity: {str(e)}", exc_info=True)
 
 
 def _create_incoming_lead_activity(
@@ -203,7 +260,14 @@ def _process_statuses_value(session: Session, value: dict[str, Any]) -> None:
         if not message:
             continue
 
-        now = datetime.fromtimestamp(timestamp, tz=timezone.utc) if timestamp else utcnow()
+        # Convert timestamp from string to int if present
+        now = utcnow()
+        if timestamp:
+            try:
+                now = datetime.fromtimestamp(int(timestamp), tz=timezone.utc)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Failed to parse status timestamp {timestamp}: {str(e)}")
+                now = utcnow()
         if status_str == "sent":
             message.status = WhatsAppMessageStatus.SENT
             message.sent_at = now

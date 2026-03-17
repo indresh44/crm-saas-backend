@@ -1,9 +1,14 @@
 import uuid
 
+from sqlalchemy import Enum as SaEnum
 from sqlmodel import Field, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import AttachmentEntityType
+
+
+def _notification_entity_type_values(enum_class: type[AttachmentEntityType]) -> list[str]:
+    return [entity_type.value for entity_type in enum_class]
 
 
 class NotificationBase(SQLModel):
@@ -28,4 +33,12 @@ class Notification(NotificationBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=
     __tablename__ = "notifications"
 
     user_id: uuid.UUID = Field(foreign_key="users.id", index=True)
+    entity_type: AttachmentEntityType = Field(
+        sa_type=SaEnum(
+            AttachmentEntityType,
+            name="attachment_entity_type",
+            create_constraint=False,
+            values_callable=_notification_entity_type_values,
+        ),
+    )
     entity_id: uuid.UUID = Field(index=True)

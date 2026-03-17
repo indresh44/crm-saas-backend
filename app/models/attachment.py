@@ -1,9 +1,14 @@
 import uuid
 
+from sqlalchemy import Enum as SaEnum
 from sqlmodel import Field, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import AttachmentEntityType
+
+
+def _attachment_entity_type_values(enum_class: type[AttachmentEntityType]) -> list[str]:
+    return [entity_type.value for entity_type in enum_class]
 
 
 class AttachmentFields(SQLModel):
@@ -31,4 +36,12 @@ class Attachment(AttachmentBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True
     __tablename__ = "attachments"
 
     business_id: uuid.UUID = Field(foreign_key="businesses.id", index=True)
+    entity_type: AttachmentEntityType = Field(
+        sa_type=SaEnum(
+            AttachmentEntityType,
+            name="attachment_entity_type",
+            create_constraint=False,
+            values_callable=_attachment_entity_type_values,
+        ),
+    )
     entity_id: uuid.UUID = Field(index=True)

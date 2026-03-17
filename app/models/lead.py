@@ -3,17 +3,21 @@ from decimal import Decimal
 from typing import Optional
 import uuid
 
-from sqlalchemy import Index
+from sqlalchemy import Enum as SaEnum, Index
 from sqlmodel import Field, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin, UpdatedAtMixin
 from app.models.enums import LeadActivityType
 
 
+def _lead_activity_type_values(enum_class: type[LeadActivityType]) -> list[str]:
+    return [activity_type.value for activity_type in enum_class]
+
+
 class LeadFields(SQLModel):
     """Fields supplied on create; business_id is injected from current user."""
 
-    customer_id: uuid.UUID
+    customer_id: Optional[uuid.UUID] = None
     stage_id: uuid.UUID
     title: str
     source: Optional[str] = None
@@ -55,7 +59,7 @@ class Lead(LeadBase, UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, table=
     )
 
     business_id: uuid.UUID = Field(foreign_key="businesses.id")
-    customer_id: uuid.UUID = Field(foreign_key="customers.id")
+    customer_id: Optional[uuid.UUID] = Field(default=None, foreign_key="customers.id")
     stage_id: uuid.UUID = Field(foreign_key="pipeline_stages.id")
     assigned_to: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id")
 
@@ -80,6 +84,14 @@ class LeadActivity(LeadActivityBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=
     __tablename__ = "lead_activities"
 
     lead_id: uuid.UUID = Field(foreign_key="leads.id", index=True)
+    type: LeadActivityType = Field(
+        sa_type=SaEnum(
+            LeadActivityType,
+            name="lead_activity_type",
+            create_constraint=False,
+            values_callable=_lead_activity_type_values,
+        ),
+    )
     created_by: uuid.UUID = Field(foreign_key="users.id", index=True)
 
 

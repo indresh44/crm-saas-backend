@@ -19,6 +19,7 @@ from app.api.v1.whatsapp_accounts import router as whatsapp_accounts_router
 from app.api.v1.whatsapp_conversations import router as whatsapp_conversations_router
 from app.api.v1.whatsapp_messages import router as whatsapp_messages_router
 from app.api.v1.whatsapp_webhooks import router as whatsapp_webhooks_router
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
     title="CRM API",
@@ -26,6 +27,19 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json",
+)
+
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(businesses_router, prefix="/api/v1", tags=["businesses"])
