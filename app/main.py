@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.api.v1.auth import router as auth_router
 from app.api.v1.attachments import router as attachments_router
 from app.api.v1.bookings import router as bookings_router
 from app.api.v1.businesses import router as businesses_router
@@ -46,6 +47,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router, prefix="/api/v1", tags=["auth"])
 app.include_router(businesses_router, prefix="/api/v1", tags=["businesses"])
 app.include_router(users_router, prefix="/api/v1", tags=["users"])
 app.include_router(catalog_items_router, prefix="/api/v1", tags=["catalog_items"])

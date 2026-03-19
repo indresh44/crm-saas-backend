@@ -2,41 +2,73 @@ from __future__ import annotations
 
 from uuid import UUID
 
+import jwt as pyjwt
 from fastapi import Depends, Header, HTTPException, status
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.core.database import get_session
+from app.core.security import decode_access_token
 from app.models.user import User
+from app.repositories.user_repository import get_user_by_id
 
 
 def get_current_user(
-    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
     session: Session = Depends(get_session),
+    authorization: str | None = Header(default=None),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ) -> User:
     """
-    Mock authentication dependency using X-User-Id header.
+    Resolve the current user from JWT Bearer auth or legacy X-User-Id.
     """
-    if x_user_id is None:
+    user_id: str | None = None
+
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+        try:
+            payload = decode_access_token(token)
+            user_id = payload.get("sub")
+        except pyjwt.ExpiredSignatureError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Access token has expired",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from exc
+        except pyjwt.InvalidTokenError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid access token",
+                headers={"WWW-Authenticate": "Bearer"},
+            ) from exc
+
+    if not user_id and x_user_id:
+        user_id = x_user_id
+
+    if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="X-User-Id header missing",
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     try:
-        user_id = UUID(x_user_id)
+        uid = UUID(user_id)
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid X-User-Id header",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user identifier",
         ) from exc
 
-    statement = select(User).where(User.id == user_id)
-    user = session.exec(statement).first()
+    user = get_user_by_id(session, uid)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
 
-    return user
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is deactivated",
+        )
 
+    return user

@@ -7,6 +7,14 @@ class UserRole(str, Enum):
     STAFF = "staff"
 
 
+class AuthProvider(str, Enum):
+    """Authentication provider types."""
+
+    EMAIL = "email"
+    GOOGLE = "google"
+    PHONE = "phone"
+
+
 class LeadActivityType(str, Enum):
     CALL = "call"
     WHATSAPP = "whatsapp"

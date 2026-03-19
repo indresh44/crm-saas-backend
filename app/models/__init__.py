@@ -1,3 +1,5 @@
+from app.models.auth_identity import AuthIdentity, AuthIdentityRead
+from app.models.auth_schemas import AuthResponse, LoginRequest, MessageResponse, RefreshRequest, RegisterRequest
 from app.models.attachment import Attachment, AttachmentRead
 from app.models.booking import Booking, BookingCreate, BookingRead
 from app.models.business import Business, BusinessCreate, BusinessRead
@@ -30,6 +32,7 @@ from app.models.pipeline import (
 )
 from app.models.quote import Quote, QuoteCreate, QuoteRead
 from app.models.quote_item import QuoteItem, QuoteItemCreate, QuoteItemRead
+from app.models.refresh_token import RefreshToken, RefreshTokenRead
 from app.models.task import Task, TaskCreate, TaskRead
 from app.models.user import User, UserCreate, UserRead
 from app.models.whatsapp_account import (
@@ -54,6 +57,9 @@ from app.models.whatsapp_message_event import (
 )
 
 __all__ = [
+    "AuthIdentity",
+    "AuthIdentityRead",
+    "AuthResponse",
     "Attachment",
     "AttachmentRead",
     "Booking",
@@ -90,6 +96,8 @@ __all__ = [
     "LeadFollowupDone",
     "LeadFollowupRead",
     "LeadRead",
+    "LoginRequest",
+    "MessageResponse",
     "Message",
     "MessageCreate",
     "MessageRead",
@@ -115,6 +123,10 @@ __all__ = [
     "QuoteItemCreate",
     "QuoteItemRead",
     "QuoteRead",
+    "RefreshRequest",
+    "RefreshToken",
+    "RefreshTokenRead",
+    "RegisterRequest",
     "Task",
     "TaskCreate",
     "TaskRead",
