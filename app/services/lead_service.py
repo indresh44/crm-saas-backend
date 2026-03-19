@@ -47,11 +47,23 @@ def get_lead(session: Session, current_user: User, lead_id: UUID) -> Lead:
     return lead
 
 
-def list_leads(session: Session, current_user: User) -> list[LeadRead]:
-    return list_leads_for_business(session, business_id=current_user.business_id)
+def list_leads(
+    session: Session,
+    current_user: User,
+    customer_id: UUID | None = None,
+) -> list[LeadRead]:
+    return list_leads_for_business(
+        session,
+        business_id=current_user.business_id,
+        customer_id=customer_id,
+    )
 
 
-def get_todays_followups(session: Session, business_id: UUID) -> list[Lead]:
+def get_todays_followups(
+    session: Session,
+    business_id: UUID,
+    customer_id: UUID | None = None,
+) -> list[Lead]:
     today_start = datetime.combine(datetime.now(timezone.utc).date(), time.min, tzinfo=timezone.utc)
     today_end = today_start + timedelta(days=1)
     statement = select(Lead).where(
@@ -60,6 +72,8 @@ def get_todays_followups(session: Session, business_id: UUID) -> list[Lead]:
         Lead.follow_up_at >= today_start,
         Lead.follow_up_at < today_end,
     )
+    if customer_id is not None:
+        statement = statement.where(Lead.customer_id == customer_id)
     return list(session.exec(statement).all())
 
 

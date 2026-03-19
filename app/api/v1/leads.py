@@ -33,6 +33,7 @@ def create_lead(
 @router.get("/leads", response_model=List[LeadRead])
 def list_leads(
     follow_up_today: bool = False,
+    customer_id: UUID | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> List[LeadRead]:
@@ -40,9 +41,14 @@ def list_leads(
         leads = service_get_todays_followups(
             session=session,
             business_id=current_user.business_id,
+            customer_id=customer_id,
         )
     else:
-        leads = service_list_leads(session=session, current_user=current_user)
+        leads = service_list_leads(
+            session=session,
+            current_user=current_user,
+            customer_id=customer_id,
+        )
     return leads
 
 

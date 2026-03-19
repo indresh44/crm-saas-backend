@@ -29,7 +29,11 @@ def get_lead_by_id(session: Session, business_id: UUID, lead_id: UUID) -> Lead |
     return session.exec(statement).first()
 
 
-def list_leads_for_business(session: Session, business_id: UUID) -> list[LeadRead]:
+def list_leads_for_business(
+    session: Session,
+    business_id: UUID,
+    customer_id: UUID | None = None,
+) -> list[LeadRead]:
     statement = (
         select(
             Lead,
@@ -41,7 +45,11 @@ def list_leads_for_business(session: Session, business_id: UUID) -> list[LeadRea
         .outerjoin(Customer, Lead.customer_id == Customer.id)
         .outerjoin(PipelineStage, Lead.stage_id == PipelineStage.id)
         .where(Lead.business_id == business_id)
+        .order_by(Lead.created_at.desc())
     )
+
+    if customer_id is not None:
+        statement = statement.where(Lead.customer_id == customer_id)
 
     rows = session.exec(statement).all()
     results: list[LeadRead] = []
@@ -115,4 +123,3 @@ def list_leads_for_business_and_stage_ids(
         Lead.stage_id.in_(list(stage_ids)),
     )
     return list(session.exec(statement).all())
-

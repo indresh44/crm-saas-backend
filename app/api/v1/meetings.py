@@ -1,9 +1,8 @@
 from datetime import date
-from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, status
-from sqlmodel import Session
+from fastapi import APIRouter, Depends, Query, Response, status
+from sqlmodel import SQLModel, Session
 
 from app.core.database import get_session
 from app.core.dependencies import get_current_user
@@ -21,6 +20,13 @@ from app.services.meeting_service import (
 router = APIRouter()
 
 
+class MeetingListResponse(SQLModel):
+    items: list[MeetingRead]
+    total: int
+    limit: int
+    offset: int
+
+
 @router.post("/meetings", response_model=MeetingRead, status_code=status.HTTP_201_CREATED)
 def create_meeting(
     payload: MeetingCreate,
@@ -31,17 +37,19 @@ def create_meeting(
     return meeting
 
 
-@router.get("/meetings", response_model=List[MeetingRead])
+@router.get("/meetings", response_model=MeetingListResponse)
 def list_meetings(
     customer_id: UUID | None = None,
     lead_id: UUID | None = None,
     status: MeetingStatus | None = None,
     from_date: date | None = None,
     to_date: date | None = None,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-) -> List[MeetingRead]:
-    meetings = service_list_meetings(
+) -> MeetingListResponse:
+    meetings, total = service_list_meetings(
         session=session,
         current_user=current_user,
         customer_id=customer_id,
@@ -49,8 +57,10 @@ def list_meetings(
         status=status,
         from_date=from_date,
         to_date=to_date,
+        limit=limit,
+        offset=offset,
     )
-    return meetings
+    return MeetingListResponse(items=meetings, total=total, limit=limit, offset=offset)
 
 
 @router.get("/meetings/{meeting_id}", response_model=MeetingRead)

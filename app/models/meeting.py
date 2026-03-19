@@ -40,6 +40,9 @@ class MeetingRead(MeetingBase):
     business_id: uuid.UUID
     status: MeetingStatus
     gcal_event_id: str | None = None
+    customer_name: str | None = None
+    customer_phone: str | None = None
+    lead_title: str | None = None
     created_at: CreatedAtMixin.__annotations__["created_at"]
     updated_at: UpdatedAtMixin.__annotations__["updated_at"]
 
