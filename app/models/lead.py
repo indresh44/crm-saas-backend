@@ -38,6 +38,10 @@ class LeadCreate(LeadFields):
 
 class LeadRead(LeadBase):
     id: uuid.UUID
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    stage_name: Optional[str] = None
+    stage_color: Optional[str] = None
     created_at: CreatedAtMixin.__annotations__["created_at"]
     updated_at: UpdatedAtMixin.__annotations__["updated_at"]
 

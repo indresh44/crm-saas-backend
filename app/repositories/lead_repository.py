@@ -5,7 +5,8 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
-from app.models.lead import Lead, LeadActivity
+from app.models.customer import Customer
+from app.models.lead import Lead, LeadActivity, LeadRead
 from app.models.pipeline import Pipeline, PipelineStage
 
 
@@ -28,9 +29,31 @@ def get_lead_by_id(session: Session, business_id: UUID, lead_id: UUID) -> Lead |
     return session.exec(statement).first()
 
 
-def list_leads_for_business(session: Session, business_id: UUID) -> list[Lead]:
-    statement = select(Lead).where(Lead.business_id == business_id)
-    return list(session.exec(statement).all())
+def list_leads_for_business(session: Session, business_id: UUID) -> list[LeadRead]:
+    statement = (
+        select(
+            Lead,
+            Customer.name,
+            Customer.phone,
+            PipelineStage.name,
+            PipelineStage.color,
+        )
+        .outerjoin(Customer, Lead.customer_id == Customer.id)
+        .outerjoin(PipelineStage, Lead.stage_id == PipelineStage.id)
+        .where(Lead.business_id == business_id)
+    )
+
+    rows = session.exec(statement).all()
+    results: list[LeadRead] = []
+    for lead, customer_name, customer_phone, stage_name, stage_color in rows:
+        lead_read = LeadRead.model_validate(lead, from_attributes=True)
+        lead_read.customer_name = customer_name
+        lead_read.customer_phone = customer_phone
+        lead_read.stage_name = stage_name
+        lead_read.stage_color = stage_color
+        results.append(lead_read)
+
+    return results
 
 
 def move_lead_stage(session: Session, lead: Lead, new_stage_id: UUID) -> Lead:

@@ -1,4 +1,5 @@
 from typing import List
+import uuid
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -9,7 +10,9 @@ from app.models.user import User
 from app.repositories.pipeline_repository import (
     create_pipeline as repo_create_pipeline,
     create_pipeline_stage as repo_create_pipeline_stage,
+    get_pipeline_by_business,
     get_pipeline_by_id_for_business,
+    get_stages_by_business,
     get_stage_by_id_for_business,
     list_pipelines_for_business,
     list_stages_for_pipeline,
@@ -57,6 +60,48 @@ def list_stages_for_pipeline_for_user(
 ) -> List[PipelineStage]:
     _ = get_pipeline(session, current_user, pipeline_id)
     return list_stages_for_pipeline(session=session, pipeline_id=pipeline_id)
+
+
+def get_stages_for_business(
+    session: Session,
+    current_user: User,
+) -> List[PipelineStage]:
+    return get_stages_by_business(session, current_user.business_id)
+
+
+def create_default_pipeline(session: Session, business_id: uuid.UUID) -> Pipeline:
+    """
+    Creates one pipeline with 5 default stages for a new business.
+    Safe to call only if no pipeline exists yet for this business.
+    """
+    existing = get_pipeline_by_business(session, business_id)
+    if existing:
+        return existing
+
+    pipeline = Pipeline(
+        name="Sales Pipeline",
+        business_id=business_id,
+        is_default=True,
+    )
+    session.add(pipeline)
+    session.flush()
+
+    stages = [
+        {"name": "Enquiry", "position": 1, "color": "#6366f1"},
+        {"name": "Interested", "position": 2, "color": "#f59e0b"},
+        {"name": "Negotiation", "position": 3, "color": "#3b82f6"},
+        {"name": "Won", "position": 4, "color": "#10b981"},
+        {"name": "Lost", "position": 5, "color": "#ef4444"},
+    ]
+    for s in stages:
+        session.add(
+            PipelineStage(
+                pipeline_id=pipeline.id,
+                **s,
+            )
+        )
+    session.commit()
+    return pipeline
 
 
 def create_stage(

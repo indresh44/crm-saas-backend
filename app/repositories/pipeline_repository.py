@@ -30,7 +30,17 @@ def list_pipelines_for_business(session: Session, business_id: UUID) -> List[Pip
     return list(session.exec(statement).all())
 
 
+def get_pipeline_by_business(session: Session, business_id: UUID) -> Optional[Pipeline]:
+    return session.exec(select(Pipeline).where(Pipeline.business_id == business_id)).first()
+
+
 def create_pipeline_stage(session: Session, stage: PipelineStage) -> PipelineStage:
+    parent_pipeline = session.exec(
+        select(Pipeline).where(Pipeline.id == stage.pipeline_id)
+    ).first()
+    if parent_pipeline is None:
+        raise ValueError("Parent pipeline not found")
+
     session.add(stage)
     session.commit()
     session.refresh(stage)
@@ -57,6 +67,17 @@ def list_stages_for_pipeline(session: Session, pipeline_id: UUID) -> List[Pipeli
         .order_by(PipelineStage.position)
     )
     return list(session.exec(statement).all())
+
+
+def get_stages_by_business(session: Session, business_id: UUID) -> List[PipelineStage]:
+    return list(
+        session.exec(
+            select(PipelineStage)
+            .join(Pipeline, PipelineStage.pipeline_id == Pipeline.id)
+            .where(Pipeline.business_id == business_id)
+            .order_by(PipelineStage.position)
+        ).all()
+    )
 
 
 def update_pipeline_stage(session: Session, stage: PipelineStage) -> PipelineStage:

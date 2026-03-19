@@ -27,7 +27,12 @@ class PipelineRead(PipelineBase):
 class Pipeline(PipelineBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
     __tablename__ = "pipelines"
 
-    business_id: uuid.UUID = Field(foreign_key="businesses.id", index=True)
+    business_id: uuid.UUID = Field(
+        foreign_key="businesses.id",
+        index=True,
+        sa_column_kwargs={"unique": True},
+    )
+    is_default: bool = Field(default=True)
 
 
 class PipelineStageBase(SQLModel):

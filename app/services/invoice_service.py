@@ -15,6 +15,7 @@ from app.repositories.invoice_repository import (
     create_invoice as repo_create_invoice,
     get_invoice_by_id,
     list_invoices_for_business,
+    list_invoices_for_lead,
 )
 from app.repositories.lead_repository import get_lead_by_id
 
@@ -96,7 +97,28 @@ def get_invoice(
     return invoice
 
 
-def list_invoices(session: Session, current_user: User) -> List[Invoice]:
+def list_invoices(
+    session: Session,
+    current_user: User,
+    lead_id: UUID | None = None,
+) -> List[Invoice]:
+    if lead_id is not None:
+        lead = get_lead_by_id(
+            session=session,
+            business_id=current_user.business_id,
+            lead_id=lead_id,
+        )
+        if lead is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Lead not found",
+            )
+        return list_invoices_for_lead(
+            session=session,
+            business_id=current_user.business_id,
+            lead_id=lead_id,
+        )
+
     return list_invoices_for_business(session, business_id=current_user.business_id)
 
 

@@ -36,3 +36,14 @@ def list_invoices_for_business(session: Session, business_id: UUID) -> List[Invo
     statement = select(Invoice).where(Invoice.business_id == business_id)
     return list(session.exec(statement).all())
 
+
+def list_invoices_for_lead(
+    session: Session,
+    business_id: UUID,
+    lead_id: UUID,
+) -> List[Invoice]:
+    statement = select(Invoice).where(
+        Invoice.business_id == business_id,
+        Invoice.lead_id == lead_id,
+    )
+    return list(session.exec(statement).all())

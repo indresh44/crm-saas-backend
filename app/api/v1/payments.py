@@ -1,3 +1,4 @@
+from uuid import UUID
 from typing import List
 
 from fastapi import APIRouter, Depends
@@ -31,9 +32,13 @@ def create_payment(
 
 @router.get("/payments", response_model=List[PaymentRead])
 def list_payments(
+    invoice_id: UUID | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> List[PaymentRead]:
-    payments = service_list_payments(session=session, current_user=current_user)
+    payments = service_list_payments(
+        session=session,
+        current_user=current_user,
+        invoice_id=invoice_id,
+    )
     return payments
-

@@ -1,4 +1,4 @@
-from app.models.attachment import Attachment, AttachmentCreate, AttachmentRead
+from app.models.attachment import Attachment, AttachmentRead
 from app.models.booking import Booking, BookingCreate, BookingRead
 from app.models.business import Business, BusinessCreate, BusinessRead
 from app.models.customer import (
@@ -53,7 +53,6 @@ from app.models.whatsapp_message_event import (
 
 __all__ = [
     "Attachment",
-    "AttachmentCreate",
     "AttachmentRead",
     "Booking",
     "BookingCreate",

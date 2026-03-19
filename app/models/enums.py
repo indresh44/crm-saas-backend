@@ -52,6 +52,7 @@ class TaskStatus(str, Enum):
 
 class AttachmentEntityType(str, Enum):
     LEAD = "lead"
+    PAYMENT = "payment"
     QUOTE = "quote"
     INVOICE = "invoice"
     TASK = "task"

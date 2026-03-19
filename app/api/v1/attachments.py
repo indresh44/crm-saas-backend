@@ -1,39 +1,90 @@
+from uuid import UUID
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlmodel import Session
 
 from app.core.database import get_session
 from app.core.dependencies import get_current_user
-from app.models.attachment import AttachmentCreate, AttachmentRead
+from app.models.attachment import AttachmentRead
+from app.models.enums import AttachmentEntityType
 from app.models.user import User
 from app.services.attachment_service import (
-    create_attachment as service_create_attachment,
     list_attachments as service_list_attachments,
+    upload_and_save_attachment as service_upload_and_save_attachment,
 )
 
 router = APIRouter()
 
 
-@router.post("/attachments", response_model=AttachmentRead)
-def create_attachment(
-    payload: AttachmentCreate,
-    session: Session = Depends(get_session),
-    current_user: User = Depends(get_current_user),
-) -> AttachmentRead:
-    attachment = service_create_attachment(
-        session=session,
-        current_user=current_user,
-        data=payload,
-    )
-    return attachment
-
-
 @router.get("/attachments", response_model=List[AttachmentRead])
 def list_attachments(
+    entity_type: str,
+    entity_id: UUID,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> List[AttachmentRead]:
-    attachments = service_list_attachments(session=session, current_user=current_user)
+    try:
+        entity_type_enum = AttachmentEntityType(entity_type)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid entity_type",
+        ) from exc
+
+    attachments = service_list_attachments(
+        session=session,
+        current_user=current_user,
+        entity_type=entity_type_enum,
+        entity_id=entity_id,
+    )
     return attachments
 
+
+@router.post("/attachments/upload", response_model=AttachmentRead)
+async def upload_attachment(
+    file: UploadFile = File(...),
+    entity_type: str = Form(...),
+    entity_id: UUID = Form(...),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> AttachmentRead:
+    allowed_content_types = {
+        "image/jpeg",
+        "image/png",
+        "application/pdf",
+    }
+    max_file_size = 10 * 1024 * 1024
+
+    try:
+        entity_type_enum = AttachmentEntityType(entity_type)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid entity_type",
+        ) from exc
+
+    if file.content_type not in allowed_content_types:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid content type",
+        )
+
+    contents = await file.read()
+    if len(contents) > max_file_size:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File size exceeds 10MB",
+        )
+
+    attachment = service_upload_and_save_attachment(
+        session=session,
+        business_id=current_user.business_id,
+        entity_type=entity_type_enum,
+        entity_id=entity_id,
+        file_bytes=contents,
+        filename=file.filename or "attachment",
+        content_type=file.content_type,
+        file_size=len(contents),
+    )
+    return attachment

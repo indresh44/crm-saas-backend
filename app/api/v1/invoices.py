@@ -34,10 +34,15 @@ def create_invoice(
 
 @router.get("/invoices", response_model=List[InvoiceRead])
 def list_invoices(
+    lead_id: UUID | None = None,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> List[InvoiceRead]:
-    invoices = service_list_invoices(session=session, current_user=current_user)
+    invoices = service_list_invoices(
+        session=session,
+        current_user=current_user,
+        lead_id=lead_id,
+    )
     return invoices
 
 

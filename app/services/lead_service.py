@@ -5,7 +5,7 @@ from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
 from app.models.enums import LeadActivityType
-from app.models.lead import Lead, LeadActivity, LeadCreate, LeadUpdate
+from app.models.lead import Lead, LeadActivity, LeadCreate, LeadRead, LeadUpdate
 from app.models.user import User
 from app.repositories.lead_repository import (
     create_lead as repo_create_lead,
@@ -47,7 +47,7 @@ def get_lead(session: Session, current_user: User, lead_id: UUID) -> Lead:
     return lead
 
 
-def list_leads(session: Session, current_user: User) -> list[Lead]:
+def list_leads(session: Session, current_user: User) -> list[LeadRead]:
     return list_leads_for_business(session, business_id=current_user.business_id)
 
 

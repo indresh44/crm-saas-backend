@@ -16,15 +16,13 @@ class AttachmentFields(SQLModel):
 
     entity_type: AttachmentEntityType
     entity_id: uuid.UUID
+    filename: str
     file_url: str
+    file_size: int
 
 
 class AttachmentBase(AttachmentFields):
     business_id: uuid.UUID
-
-
-class AttachmentCreate(AttachmentFields):
-    pass
 
 
 class AttachmentRead(AttachmentBase):
@@ -45,3 +43,5 @@ class Attachment(AttachmentBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True
         ),
     )
     entity_id: uuid.UUID = Field(index=True)
+    filename: str
+    file_size: int

@@ -1,7 +1,7 @@
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
 
 from app.core.database import get_session
@@ -12,6 +12,7 @@ from app.services.pipeline_service import (
     PipelineStageCreateForUser,
     PipelineStageUpdate,
     create_stage as service_create_stage,
+    get_stages_for_business,
     list_stages_for_pipeline_for_user,
     update_stage as service_update_stage,
 )
@@ -19,17 +20,23 @@ from app.services.pipeline_service import (
 router = APIRouter()
 
 
-@router.get("/pipelines/{pipeline_id}/stages", response_model=List[PipelineStageRead])
+@router.get("/pipeline-stages", response_model=List[PipelineStageRead])
 def list_stages(
-    pipeline_id: UUID,
+    pipeline_id: UUID | None = Query(default=None),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> List[PipelineStageRead]:
-    stages = list_stages_for_pipeline_for_user(
-        session=session,
-        current_user=current_user,
-        pipeline_id=pipeline_id,
-    )
+    if pipeline_id is not None:
+        stages = list_stages_for_pipeline_for_user(
+            session=session,
+            current_user=current_user,
+            pipeline_id=pipeline_id,
+        )
+    else:
+        stages = get_stages_for_business(
+            session=session,
+            current_user=current_user,
+        )
     return stages
 
 
