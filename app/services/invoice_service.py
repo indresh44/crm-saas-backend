@@ -10,21 +10,35 @@ from app.models.enums import InvoiceStatus
 from app.models.invoice import Invoice
 from app.models.invoice_item import InvoiceItem, InvoiceItemCreate
 from app.models.user import User
+from app.repositories.business_repository import increment_invoice_sequence
 from app.repositories.booking_repository import get_booking_by_id
 from app.repositories.invoice_repository import (
-    create_invoice as repo_create_invoice,
     get_invoice_by_id,
     list_invoices_for_business,
     list_invoices_for_lead,
 )
 from app.repositories.lead_repository import get_lead_by_id
+from app.services.line_item_calculator import calculate_totals
 
 
 def _build_invoice_items(
     invoice_id: UUID,
-    items: List[InvoiceItemCreate],
+    items: List[dict],
 ) -> List[InvoiceItem]:
-    return [item.build_model(invoice_id=invoice_id) for item in items]
+    return [
+        InvoiceItem(
+            invoice_id=invoice_id,
+            catalog_item_id=item.get("catalog_item_id"),
+            name=item.get("name", ""),
+            description=item["description"],
+            unit=item.get("unit", "piece"),
+            quantity=item["quantity"],
+            unit_price=item["unit_price"],
+            gst_percent=item["gst_percent"],
+            amount=item["amount"],
+        )
+        for item in items
+    ]
 
 
 def create_invoice(
@@ -67,14 +81,23 @@ def create_invoice(
 
     invoice_data = data.invoice.model_dump()
     invoice_data["business_id"] = current_user.business_id
+    seq = increment_invoice_sequence(session, current_user.business_id)
+    invoice_data["invoice_number"] = f"INV-{seq:03d}"
+    totals = calculate_totals(data.items or [])
+    invoice_data["subtotal"] = totals["subtotal"]
+    invoice_data["tax_total"] = totals["tax_total"]
+    invoice_data["total_amount"] = totals["total_amount"]
 
     invoice = Invoice(**invoice_data)
-    invoice = repo_create_invoice(session, invoice)
+    session.add(invoice)
+    session.flush()
 
-    if data.items:
-        items = _build_invoice_items(invoice_id=invoice.id, items=data.items)
+    if data.items is not None:
+        items = _build_invoice_items(invoice_id=invoice.id, items=totals["items_with_totals"])
         session.add_all(items)
-        session.commit()
+
+    session.commit()
+    session.refresh(invoice)
 
     return invoice
 
@@ -125,8 +148,6 @@ def list_invoices(
 class InvoiceData(SQLModel):
     booking_id: Optional[UUID] = None
     lead_id: Optional[UUID] = None
-    invoice_number: str
-    total_amount: Decimal
     status: InvoiceStatus = InvoiceStatus.DRAFT
     issued_date: date
     due_date: date

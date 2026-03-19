@@ -1,6 +1,7 @@
 from typing import List, Optional
 from uuid import UUID
 
+from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
 from app.models.quote import Quote
@@ -29,6 +30,22 @@ def get_quote_by_id(
     statement = select(Quote).where(
         Quote.id == quote_id,
         Quote.business_id == business_id,
+    )
+    return session.exec(statement).first()
+
+
+def get_quote_with_items(session: Session, business_id: UUID, quote_id: UUID) -> Quote | None:
+    """
+    Fetch a quote by ID with its QuoteItem records eagerly loaded.
+    Filter by business_id for tenant isolation.
+    """
+    statement = (
+        select(Quote)
+        .options(selectinload(Quote.items))
+        .where(
+            Quote.id == quote_id,
+            Quote.business_id == business_id,
+        )
     )
     return session.exec(statement).first()
 

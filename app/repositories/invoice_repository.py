@@ -47,3 +47,12 @@ def list_invoices_for_lead(
         Invoice.lead_id == lead_id,
     )
     return list(session.exec(statement).all())
+
+
+def get_invoice_by_quote_id(session: Session, business_id: UUID, quote_id: UUID) -> Invoice | None:
+    """Check if an invoice already exists for a given quote."""
+    statement = select(Invoice).where(
+        Invoice.business_id == business_id,
+        Invoice.quote_id == quote_id,
+    )
+    return session.exec(statement).first()

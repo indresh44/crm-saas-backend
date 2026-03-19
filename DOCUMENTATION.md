@@ -43,22 +43,18 @@ This is a **SaaS CRM system** designed for small service businesses such as:
 
 ## Current Project Status
 
-Snapshot date: **2026-03-17**
+Snapshot date: **2026-03-19**
 
 ### Implemented and Available
 
 - Layered backend architecture is in place (`api -> services -> repositories -> models`).
-- Core CRM APIs are implemented for businesses, users, customers, leads, lead activities, pipelines, pipeline stages, quotes, bookings, invoices, payments, tasks, attachments, messages, and notifications.
+- Core CRM APIs are implemented for businesses, users, customers, leads, lead activities, lead followups, pipelines, pipeline stages, quotes, bookings, invoices, payments, tasks, attachments, messages, and notifications.
 - WhatsApp APIs are implemented for account management, conversations, messaging, and webhooks.
 - Health and API docs endpoints are available (`/health`, `/api/docs`, `/api/redoc`).
-- Alembic migrations `0001` through `0004` are present in the repository.
-
-### In Progress (Local Workspace Changes)
-
-- Customer phone normalization is being introduced:
-- New helper added at `app/core/phone.py`.
-- New migration draft added: `0005_add_customer_phone_normalized.py`.
-- Customer and WhatsApp conversation modules have active local edits not yet committed.
+- Alembic migrations through `0010_invoice_seq_fix` are present in the repository.
+- Attachment uploads are supported through Cloudflare R2.
+- Invoice numbers are generated per business using a business-local sequence.
+- Payment recording updates invoice status automatically (`SENT`, `PARTIAL`, `PAID`, `OVERDUE`).
 
 ### Pending / Not Yet Implemented
 
@@ -88,6 +84,9 @@ psycopg2-binary  - PostgreSQL adapter
 alembic          - Database migrations
 python-dotenv    - Environment variables
 pydantic-settings - Configuration management
+pywa              - WhatsApp integration
+boto3             - Cloudflare R2 / S3-compatible storage
+python-multipart  - Multipart file upload parsing
 ```
 
 ### Infrastructure
@@ -109,7 +108,8 @@ crm-saas-backend/
 │   │   ├── __init__.py
 │   │   ├── config.py                 # Settings and environment configuration
 │   │   ├── database.py               # Database connection and session management
-│   │   └── dependencies.py           # FastAPI dependency injection
+│   │   ├── dependencies.py           # FastAPI dependency injection
+│   │   └── storage.py                # Cloudflare R2 storage helper
 │   ├── models/                       # SQLModel database models
 │   │   ├── __init__.py
 │   │   ├── common.py                 # Base model mixins (UUID, timestamps)
@@ -149,6 +149,7 @@ crm-saas-backend/
 │   │   ├── customer_service.py
 │   │   ├── lead_service.py
 │   │   ├── lead_activity_service.py
+│   │   ├── lead_followup_service.py
 │   │   ├── pipeline_service.py
 │   │   ├── pipeline_board_service.py
 │   │   ├── quote_service.py
@@ -167,6 +168,7 @@ crm-saas-backend/
 │           ├── customers.py          # Customer endpoints
 │           ├── leads.py              # Lead endpoints
 │           ├── lead_activities.py    # Lead activity endpoints
+│           ├── lead_followups.py     # Lead followup endpoints
 │           ├── pipelines.py          # Pipeline endpoints
 │           ├── pipeline_stages.py    # Pipeline stage endpoints
 │           ├── quotes.py             # Quote endpoints
@@ -176,7 +178,11 @@ crm-saas-backend/
 │           ├── tasks.py              # Task endpoints
 │           ├── messages.py           # Message endpoints
 │           ├── notifications.py      # Notification endpoints
-│           └── attachments.py        # Attachment endpoints
+│           ├── attachments.py        # Attachment endpoints
+│           ├── whatsapp_accounts.py  # WhatsApp account endpoints
+│           ├── whatsapp_conversations.py
+│           ├── whatsapp_messages.py
+│           └── whatsapp_webhooks.py
 ├── migrations/                       # Alembic database migrations
 │   ├── env.py                        # Migration environment configuration
 │   ├── script.py.mako                # Migration template
@@ -303,6 +309,7 @@ Represents a business account in the system.
 - `name` (str): Business name
 - `phone` (str): Business phone
 - `whatsapp_number` (str, optional): WhatsApp business number
+- `invoice_sequence` (int): Current per-business invoice counter
 - `owner_user_id` (UUID, optional): Foreign key to User (business owner)
 - `created_at` (datetime): Creation timestamp
 
@@ -453,13 +460,14 @@ class BookingStatus(str, Enum):
 
 #### Invoice
 
-Represents a billing invoice for a booking.
+Represents a billing invoice for a booking or lead.
 
 **Fields:**
 
 - `id` (UUID): Primary key
 - `business_id` (UUID): Foreign key to Business
-- `booking_id` (UUID): Foreign key to Booking
+- `booking_id` (UUID, optional): Foreign key to Booking
+- `lead_id` (UUID, optional): Foreign key to Lead
 - `invoice_number` (str): Unique invoice identifier
 - `total_amount` (Decimal): Invoice total
 - `status` (InvoiceStatus): Payment status
@@ -488,8 +496,9 @@ Records a payment received for an invoice.
 - `business_id` (UUID): Foreign key to Business
 - `invoice_id` (UUID): Foreign key to Invoice
 - `amount` (Decimal): Payment amount
-- `method` (PaymentMethod): Payment method used
-- `reference` (str): Transaction reference
+- `payment_method` (PaymentMethod): Payment method used
+- `payment_date` (date): Payment date
+- `reference` (str, optional): Transaction reference
 - `created_at` (datetime): Payment timestamp
 
 **Payment Methods:**
@@ -591,6 +600,7 @@ Represents file attachments (documents, images, etc.).
 ```python
 class AttachmentEntityType(str, Enum):
     LEAD = "lead"          # Attached to a lead
+    PAYMENT = "payment"    # Attached to a payment
     QUOTE = "quote"        # Attached to a quote
     INVOICE = "invoice"    # Attached to an invoice
     TASK = "task"          # Attached to a task
@@ -693,19 +703,15 @@ DELETE /api/v1/bookings/{booking_id}    Delete booking
 
 ```
 POST   /api/v1/invoices                 Create an invoice
-GET    /api/v1/invoices                 List invoices
+GET    /api/v1/invoices                 List invoices (supports `lead_id`)
 GET    /api/v1/invoices/{invoice_id}    Get invoice details
-PATCH  /api/v1/invoices/{invoice_id}    Update invoice
-POST   /api/v1/invoices/{id}/send       Send invoice to customer
 ```
 
 ### Payments
 
 ```
 POST   /api/v1/payments                 Record a payment
-GET    /api/v1/payments                 List payments
-GET    /api/v1/payments/{payment_id}    Get payment details
-DELETE /api/v1/payments/{payment_id}    Delete payment record
+GET    /api/v1/payments                 List payments (supports `invoice_id`)
 ```
 
 ### Tasks
@@ -737,9 +743,8 @@ DELETE /api/v1/notifications/{id}       Delete notification
 ### Attachments
 
 ```
-POST   /api/v1/attachments              Upload an attachment
-GET    /api/v1/attachments              List attachments
-DELETE /api/v1/attachments/{id}         Delete attachment
+POST   /api/v1/attachments/upload       Upload an attachment to R2
+GET    /api/v1/attachments              List attachments by `entity_type` and `entity_id`
 ```
 
 ### Health Check
@@ -759,6 +764,7 @@ The services layer contains all business logic. Each service is responsible for:
 - Orchestrating database operations
 - Handling errors
 - Maintaining business rules
+- Coordinating multi-step workflows such as invoice numbering, payment status recalculation, and attachment uploads
 
 ### Example: Lead Service
 
@@ -1167,14 +1173,15 @@ The system uses `.env` file for configuration:
 # Database
 DATABASE_URL=postgresql://user:password@localhost/crm_db
 
-# API
-API_TITLE=CRM API
-API_VERSION=0.1.0
-DEBUG=True
+# WhatsApp
+WHATSAPP_WEBHOOK_VERIFY_TOKEN=crm-whatsapp-webhook-verify-token
 
-# Features (future)
-REDIS_URL=redis://localhost:6379
-AWS_REGION=us-east-1
+# Cloudflare R2
+R2_ENDPOINT_URL=https://<account>.r2.cloudflarestorage.com
+R2_ACCESS_KEY_ID=<r2-access-key>
+R2_SECRET_ACCESS_KEY=<r2-secret-key>
+R2_BUCKET_NAME=<bucket-name>
+R2_PUBLIC_URL=https://<public-bucket-url>
 ```
 
 ### Configuration File
@@ -1182,17 +1189,23 @@ AWS_REGION=us-east-1
 Located in `app/core/config.py`:
 
 ```python
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    database_url: str
-    api_title: str = "CRM API"
-    api_version: str = "0.1.0"
-    debug: bool = False
+    database_url: str = "postgresql://crm_user:crm_password@localhost:5432/crm_db"
+    whatsapp_webhook_verify_token: str = "crm-whatsapp-webhook-verify-token"
+    R2_ENDPOINT_URL: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET_NAME: str = ""
+    R2_PUBLIC_URL: str = ""
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = 'utf-8'
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 settings = Settings()
 ```

@@ -13,21 +13,23 @@ def _quote_status_values(enum_class: type[QuoteStatus]) -> list[str]:
     return [status.value for status in enum_class]
 
 
-class QuoteFields(SQLModel):
-    """Fields supplied on create; business_id is injected from current user."""
+class QuoteCreateFields(SQLModel):
+    """Fields supplied on create; business_id and totals are injected by the backend."""
 
     lead_id: uuid.UUID
-    title: str
     description: Optional[str] = None
-    total_amount: Decimal = Field(decimal_places=2, max_digits=12)
     status: QuoteStatus = QuoteStatus.DRAFT
+    is_template: bool = False
 
 
-class QuoteBase(QuoteFields):
+class QuoteBase(QuoteCreateFields):
     business_id: uuid.UUID
+    subtotal: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12)
+    tax_total: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12)
+    total_amount: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12)
 
 
-class QuoteCreate(QuoteFields):
+class QuoteCreate(QuoteCreateFields):
     pass
 
 
@@ -41,6 +43,11 @@ class Quote(QuoteBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
 
     lead_id: uuid.UUID = Field(foreign_key="leads.id", index=True)
     business_id: uuid.UUID = Field(foreign_key="businesses.id", index=True)
+    title: Optional[str] = Field(default=None)
+    is_template: bool = Field(default=False, nullable=False)
+    subtotal: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12, nullable=False)
+    tax_total: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12, nullable=False)
+    total_amount: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12, nullable=False)
     status: QuoteStatus = Field(
         sa_type=SaEnum(
             QuoteStatus,

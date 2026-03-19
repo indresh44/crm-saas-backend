@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlmodel import Session, select
 
 from app.models.booking import Booking
+from app.models.enums import BookingStatus
 from app.models.lead import Lead
 from app.models.quote import Quote
 
@@ -20,6 +21,7 @@ def create_booking(
         business_id=business_id,
         event_date=lead.service_date or quote.created_at.date(),
         total_amount=quote.total_amount,
+        status=BookingStatus.CONFIRMED,
     )
     session.add(booking)
     session.commit()

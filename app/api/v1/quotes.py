@@ -1,16 +1,18 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from sqlmodel import Session
 
 from app.core.database import get_session
 from app.core.dependencies import get_current_user
+from app.models.invoice import InvoiceRead
 from app.models.quote import QuoteRead
 from app.models.quote_item import QuoteItemRead
 from app.models.user import User
 from app.services.quote_service import (
     QuoteCreateWithItems,
     QuoteUpdateWithItems,
+    convert_quote_to_invoice as service_convert_quote_to_invoice,
     create_quote as service_create_quote,
     get_quote as service_get_quote,
     list_quote_items as service_list_quote_items,
@@ -76,3 +78,17 @@ def list_quote_items(
         quote_id=quote_id,
     )
     return service_list_quote_items(session, quote_id=quote_id)
+
+
+@router.post("/quotes/{quote_id}/convert-to-invoice", response_model=InvoiceRead, status_code=status.HTTP_201_CREATED)
+def convert_quote_to_invoice(
+    quote_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> InvoiceRead:
+    """
+    Convert a quote into an invoice. Copies all line items from the quote
+    to the new invoice. The quote must be in 'sent' or 'accepted' status.
+    Returns the newly created invoice.
+    """
+    return service_convert_quote_to_invoice(session, current_user, quote_id)

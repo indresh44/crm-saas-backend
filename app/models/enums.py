@@ -29,6 +29,13 @@ class BookingStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class MeetingStatus(str, Enum):
+    SCHEDULED = "scheduled"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    NO_SHOW = "no_show"
+
+
 class InvoiceStatus(str, Enum):
     DRAFT = "draft"
     SENT = "sent"
@@ -48,6 +55,21 @@ class TaskStatus(str, Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     DONE = "done"
+
+
+class CatalogItemUnit(str, Enum):
+    """Common units. The 'custom' value lets owners type their own unit."""
+
+    PIECE = "piece"
+    SQ_FT = "sq_ft"
+    METER = "meter"
+    KG = "kg"
+    HOUR = "hour"
+    SESSION = "session"
+    MONTH = "month"
+    TRIP = "trip"
+    LOT = "lot"
+    CUSTOM = "custom"
 
 
 class AttachmentEntityType(str, Enum):

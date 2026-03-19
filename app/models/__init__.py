@@ -1,6 +1,7 @@
 from app.models.attachment import Attachment, AttachmentRead
 from app.models.booking import Booking, BookingCreate, BookingRead
 from app.models.business import Business, BusinessCreate, BusinessRead
+from app.models.catalog_item import CatalogItem, CatalogItemCreate, CatalogItemRead, CatalogItemUpdate
 from app.models.customer import (
     Customer,
     CustomerCreate,
@@ -16,6 +17,7 @@ from app.models.invoice_item import InvoiceItem, InvoiceItemCreate, InvoiceItemR
 from app.models.lead import Lead, LeadActivity, LeadActivityCreate, LeadActivityRead, LeadCreate, LeadRead
 from app.models.lead_followup import LeadFollowup, LeadFollowupCreate, LeadFollowupDone, LeadFollowupRead
 from app.models.message import Message, MessageCreate, MessageRead
+from app.models.meeting import Meeting, MeetingCreate, MeetingRead, MeetingUpdate
 from app.models.notification import Notification, NotificationCreate, NotificationRead
 from app.models.payment import Payment, PaymentCreate, PaymentRead
 from app.models.pipeline import (
@@ -60,6 +62,10 @@ __all__ = [
     "Business",
     "BusinessCreate",
     "BusinessRead",
+    "CatalogItem",
+    "CatalogItemCreate",
+    "CatalogItemRead",
+    "CatalogItemUpdate",
     "Customer",
     "CustomerCreate",
     "CustomerCreateRequest",
@@ -87,6 +93,10 @@ __all__ = [
     "Message",
     "MessageCreate",
     "MessageRead",
+    "Meeting",
+    "MeetingCreate",
+    "MeetingRead",
+    "MeetingUpdate",
     "Notification",
     "NotificationCreate",
     "NotificationRead",

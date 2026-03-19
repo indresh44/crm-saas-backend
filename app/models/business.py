@@ -10,6 +10,7 @@ class BusinessBase(SQLModel):
     name: str
     phone: str
     whatsapp_number: Optional[str] = None
+    invoice_sequence: int = Field(default=0, nullable=False)
 
 
 class BusinessCreate(BusinessBase):
@@ -25,4 +26,5 @@ class BusinessRead(BusinessBase):
 class Business(BusinessBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
     __tablename__ = "businesses"
 
+    invoice_sequence: int = Field(default=0, nullable=False)
     owner_user_id: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id")

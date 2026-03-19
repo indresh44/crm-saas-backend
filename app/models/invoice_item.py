@@ -18,7 +18,10 @@ ALLOWED_GST_PERCENTS: set[Decimal] = {
 
 
 class InvoiceItemCreate(SQLModel):
+    name: str = ""
     description: str
+    unit: str = "piece"
+    catalog_item_id: uuid.UUID | None = None
     quantity: Decimal = Field(default=Decimal("1"), decimal_places=2, max_digits=12)
     unit_price: Decimal = Field(decimal_places=2, max_digits=12)
     gst_percent: Decimal = Field(default=Decimal("0.0"), decimal_places=2, max_digits=5)
@@ -28,7 +31,10 @@ class InvoiceItemCreate(SQLModel):
             raise ValueError("gst_percent must be one of 0, 5, 12, 18, 28")
         return InvoiceItem(
             invoice_id=invoice_id,
+            name=self.name,
             description=self.description,
+            unit=self.unit,
+            catalog_item_id=self.catalog_item_id,
             quantity=self.quantity,
             unit_price=self.unit_price,
             gst_percent=self.gst_percent,
@@ -39,7 +45,10 @@ class InvoiceItemCreate(SQLModel):
 class InvoiceItemRead(SQLModel):
     id: uuid.UUID
     invoice_id: uuid.UUID
+    name: str
     description: str
+    unit: str
+    catalog_item_id: uuid.UUID | None
     quantity: Decimal
     unit_price: Decimal
     gst_percent: Decimal
@@ -54,7 +63,15 @@ class InvoiceItem(UUIDPrimaryKeyMixin, CreatedAtMixin, SQLModel, table=True):
     )
 
     invoice_id: uuid.UUID = Field(foreign_key="invoices.id", nullable=False, index=True)
+    name: str = Field(default="", max_length=200)
     description: str
+    unit: str = Field(default="piece", max_length=50)
+    catalog_item_id: uuid.UUID | None = Field(
+        default=None,
+        foreign_key="catalog_items.id",
+        nullable=True,
+        index=True,
+    )
     quantity: Decimal = Field(default=Decimal("1"), decimal_places=2, max_digits=12)
     unit_price: Decimal = Field(decimal_places=2, max_digits=12)
     gst_percent: Decimal = Field(default=Decimal("0.0"), decimal_places=2, max_digits=5)

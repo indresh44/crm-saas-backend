@@ -14,23 +14,26 @@ def _invoice_status_values(enum_class: type[InvoiceStatus]) -> list[str]:
     return [status.value for status in enum_class]
 
 
-class InvoiceFields(SQLModel):
-    """Fields supplied on create; business_id is injected from current user."""
+class InvoiceCreateFields(SQLModel):
+    """Fields supplied on create; business_id and invoice_number are server-generated."""
 
     booking_id: Optional[uuid.UUID] = None
     lead_id: Optional[uuid.UUID] = None
-    invoice_number: str
-    total_amount: Decimal = Field(decimal_places=2, max_digits=12)
     status: InvoiceStatus = InvoiceStatus.DRAFT
     issued_date: date
     due_date: date
 
 
-class InvoiceBase(InvoiceFields):
+class InvoiceBase(InvoiceCreateFields):
     business_id: uuid.UUID
+    quote_id: Optional[uuid.UUID] = None
+    subtotal: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12)
+    tax_total: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12)
+    total_amount: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12)
+    invoice_number: str
 
 
-class InvoiceCreate(InvoiceFields):
+class InvoiceCreate(InvoiceCreateFields):
     pass
 
 
@@ -45,6 +48,10 @@ class Invoice(InvoiceBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
     business_id: uuid.UUID = Field(foreign_key="businesses.id", index=True)
     booking_id: Optional[uuid.UUID] = Field(default=None, foreign_key="bookings.id", nullable=True, index=True)
     lead_id: Optional[uuid.UUID] = Field(default=None, foreign_key="leads.id", nullable=True, index=True)
+    quote_id: Optional[uuid.UUID] = Field(default=None, foreign_key="quotes.id", nullable=True, index=True)
+    subtotal: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12, nullable=False)
+    tax_total: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12, nullable=False)
+    total_amount: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12, nullable=False)
     invoice_number: str = Field(index=True)
     status: InvoiceStatus = Field(
         sa_type=SaEnum(
