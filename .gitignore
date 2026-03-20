@@ -36,3 +36,6 @@ alembic.log
 debug.log
 *.log
 log.txt
+
+
+*.todo
