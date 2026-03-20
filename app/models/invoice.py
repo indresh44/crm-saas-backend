@@ -8,6 +8,7 @@ from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import InvoiceStatus
+from app.models.invoice_item import InvoiceItem, InvoiceItemRead
 
 
 def _invoice_status_values(enum_class: type[InvoiceStatus]) -> list[str]:
@@ -42,6 +43,10 @@ class InvoiceRead(InvoiceBase):
     created_at: CreatedAtMixin.__annotations__["created_at"]
 
 
+class InvoiceReadWithItems(InvoiceRead):
+    items: List[InvoiceItemRead]
+
+
 class Invoice(InvoiceBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
     __tablename__ = "invoices"
 
@@ -61,4 +66,4 @@ class Invoice(InvoiceBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
             values_callable=_invoice_status_values,
         ),
     )
-    items: List["InvoiceItem"] = Relationship(back_populates="invoice")
+    items: List[InvoiceItem] = Relationship(back_populates="invoice")

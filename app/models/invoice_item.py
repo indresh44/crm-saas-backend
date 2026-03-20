@@ -1,11 +1,15 @@
 from decimal import Decimal
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 import uuid
 
+from pydantic import field_serializer
 from sqlalchemy import CheckConstraint
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
+
+if TYPE_CHECKING:
+    from app.models.invoice import Invoice
 
 
 ALLOWED_GST_PERCENTS: set[Decimal] = {
@@ -54,6 +58,10 @@ class InvoiceItemRead(SQLModel):
     gst_percent: Decimal
     amount: Decimal
     created_at: CreatedAtMixin.__annotations__["created_at"]
+
+    @field_serializer("quantity", "unit_price", "gst_percent", "amount", when_used="json")
+    def serialize_decimal_fields(self, value: Decimal) -> float:
+        return float(value)
 
 
 class InvoiceItem(UUIDPrimaryKeyMixin, CreatedAtMixin, SQLModel, table=True):

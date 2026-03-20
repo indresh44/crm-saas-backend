@@ -14,8 +14,13 @@ from app.repositories.business_repository import increment_invoice_sequence
 from app.repositories.booking_repository import get_booking_by_id
 from app.repositories.invoice_repository import (
     get_invoice_by_id,
+    get_invoice_with_items,
     list_invoices_for_business,
+    list_invoices_for_business_with_items,
     list_invoices_for_lead,
+    list_invoices_for_lead_with_items,
+    replace_invoice_items,
+    update_invoice as repo_update_invoice,
 )
 from app.repositories.lead_repository import get_lead_by_id
 from app.services.line_item_calculator import calculate_totals
@@ -120,10 +125,57 @@ def get_invoice(
     return invoice
 
 
+def update_invoice(
+    session: Session,
+    current_user: User,
+    invoice_id: UUID,
+    data: "InvoiceUpdateWithItems",
+) -> Invoice:
+    invoice = get_invoice_with_items(
+        session=session,
+        business_id=current_user.business_id,
+        invoice_id=invoice_id,
+    )
+    if invoice is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice not found",
+        )
+
+    if invoice.status != InvoiceStatus.DRAFT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only draft invoices can be edited",
+        )
+
+    update_data = data.invoice.model_dump(exclude_unset=True)
+    if data.items is not None:
+        totals = calculate_totals(data.items)
+        update_data["subtotal"] = totals["subtotal"]
+        update_data["tax_total"] = totals["tax_total"]
+        update_data["total_amount"] = totals["total_amount"]
+
+    for field, value in update_data.items():
+        setattr(invoice, field, value)
+
+    invoice = repo_update_invoice(session, invoice)
+
+    if data.items is not None:
+        items = _build_invoice_items(
+            invoice_id=invoice.id,
+            items=totals["items_with_totals"],
+        )
+        replace_invoice_items(session, invoice_id=invoice.id, items=items)
+        session.refresh(invoice)
+
+    return invoice
+
+
 def list_invoices(
     session: Session,
     current_user: User,
     lead_id: UUID | None = None,
+    include_items: bool = False,
 ) -> List[Invoice]:
     if lead_id is not None:
         lead = get_lead_by_id(
@@ -136,10 +188,22 @@ def list_invoices(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Lead not found",
             )
+        if include_items:
+            return list_invoices_for_lead_with_items(
+                session=session,
+                business_id=current_user.business_id,
+                lead_id=lead_id,
+            )
         return list_invoices_for_lead(
             session=session,
             business_id=current_user.business_id,
             lead_id=lead_id,
+        )
+
+    if include_items:
+        return list_invoices_for_business_with_items(
+            session,
+            business_id=current_user.business_id,
         )
 
     return list_invoices_for_business(session, business_id=current_user.business_id)
@@ -153,6 +217,16 @@ class InvoiceData(SQLModel):
     due_date: date
 
 
+class InvoiceUpdateData(SQLModel):
+    issued_date: Optional[date] = None
+    due_date: Optional[date] = None
+
+
 class InvoiceCreateWithItems(SQLModel):
     invoice: InvoiceData
+    items: Optional[List[InvoiceItemCreate]] = None
+
+
+class InvoiceUpdateWithItems(SQLModel):
+    invoice: InvoiceUpdateData
     items: Optional[List[InvoiceItemCreate]] = None

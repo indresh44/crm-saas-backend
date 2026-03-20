@@ -14,7 +14,7 @@ from app.models.customer import (
     CustomerSearchResponse,
     CustomerUpdate,
 )
-from app.models.invoice import Invoice, InvoiceCreate, InvoiceRead
+from app.models.invoice import Invoice, InvoiceCreate, InvoiceRead, InvoiceReadWithItems
 from app.models.invoice_item import InvoiceItem, InvoiceItemCreate, InvoiceItemRead
 from app.models.lead import Lead, LeadActivity, LeadActivityCreate, LeadActivityRead, LeadCreate, LeadRead
 from app.models.lead_followup import LeadFollowup, LeadFollowupCreate, LeadFollowupDone, LeadFollowupRead
@@ -86,6 +86,7 @@ __all__ = [
     "InvoiceItemCreate",
     "InvoiceItemRead",
     "InvoiceRead",
+    "InvoiceReadWithItems",
     "Lead",
     "LeadActivity",
     "LeadActivityCreate",
