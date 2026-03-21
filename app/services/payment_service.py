@@ -39,6 +39,7 @@ def create_payment(
 
     _recalculate_invoice_status(session, invoice)
     clear_invoice_pdf(session, invoice)
+    session.commit()
     session.refresh(payment)
 
     return payment
