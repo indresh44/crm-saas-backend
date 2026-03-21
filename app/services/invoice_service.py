@@ -10,7 +10,7 @@ from app.models.enums import InvoiceStatus
 from app.models.invoice import Invoice
 from app.models.invoice_item import InvoiceItem, InvoiceItemCreate
 from app.models.user import User
-from app.repositories.business_repository import increment_invoice_sequence
+from app.repositories.business_repository import get_business_by_id, increment_invoice_sequence
 from app.repositories.booking_repository import get_booking_by_id
 from app.repositories.invoice_repository import (
     get_invoice_by_id,
@@ -24,6 +24,16 @@ from app.repositories.invoice_repository import (
 )
 from app.repositories.lead_repository import get_lead_by_id
 from app.services.line_item_calculator import calculate_totals
+
+
+def clear_invoice_pdf(session: Session, invoice: Invoice) -> None:
+    """Clear cached PDF so it regenerates on next request."""
+    if invoice.pdf_url or invoice.pdf_generated_at:
+        invoice.pdf_url = None
+        invoice.pdf_generated_at = None
+        session.add(invoice)
+        session.commit()
+        session.refresh(invoice)
 
 
 def _build_invoice_items(
@@ -86,8 +96,16 @@ def create_invoice(
 
     invoice_data = data.invoice.model_dump()
     invoice_data["business_id"] = current_user.business_id
+    business = get_business_by_id(session, current_user.business_id)
+    if business is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found",
+        )
+
     seq = increment_invoice_sequence(session, current_user.business_id)
-    invoice_data["invoice_number"] = f"INV-{seq:03d}"
+    prefix = (business.invoice_prefix or "INV").strip() or "INV"
+    invoice_data["invoice_number"] = f"{prefix}-{seq:03d}"
     totals = calculate_totals(data.items or [])
     invoice_data["subtotal"] = totals["subtotal"]
     invoice_data["tax_total"] = totals["tax_total"]
@@ -159,6 +177,8 @@ def update_invoice(
         setattr(invoice, field, value)
 
     invoice = repo_update_invoice(session, invoice)
+    if update_data:
+        clear_invoice_pdf(session, invoice)
 
     if data.items is not None:
         items = _build_invoice_items(
@@ -167,6 +187,7 @@ def update_invoice(
         )
         replace_invoice_items(session, invoice_id=invoice.id, items=items)
         session.refresh(invoice)
+        clear_invoice_pdf(session, invoice)
 
     return invoice
 

@@ -11,6 +11,7 @@ from app.models.invoice import Invoice
 from app.models.payment import Payment, PaymentCreate
 from app.models.user import User
 from app.repositories.invoice_repository import get_invoice_by_id
+from app.services.invoice_service import clear_invoice_pdf
 
 
 def create_payment(
@@ -37,7 +38,7 @@ def create_payment(
     session.flush()
 
     _recalculate_invoice_status(session, invoice)
-    session.commit()
+    clear_invoice_pdf(session, invoice)
     session.refresh(payment)
 
     return payment

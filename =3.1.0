@@ -1,0 +1,6 @@
+Collecting jinja2
+  Downloading jinja2-3.1.6-py3-none-any.whl.metadata (2.9 kB)
+Requirement already satisfied: MarkupSafe>=2.0 in ./.venv/lib/python3.12/site-packages (from jinja2) (3.0.3)
+Downloading jinja2-3.1.6-py3-none-any.whl (134 kB)
+Installing collected packages: jinja2
+Successfully installed jinja2-3.1.6

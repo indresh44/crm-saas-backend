@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 import uuid
@@ -32,6 +32,8 @@ class InvoiceBase(InvoiceCreateFields):
     tax_total: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12)
     total_amount: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12)
     invoice_number: str
+    pdf_url: Optional[str] = Field(default=None, max_length=500)
+    pdf_generated_at: Optional[datetime] = None
 
 
 class InvoiceCreate(InvoiceCreateFields):

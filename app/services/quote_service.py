@@ -15,7 +15,7 @@ from app.models.lead import Lead, LeadActivity
 from app.models.quote import Quote
 from app.models.quote_item import QuoteItem, QuoteItemCreate
 from app.models.user import User
-from app.repositories.business_repository import increment_invoice_sequence
+from app.repositories.business_repository import get_business_by_id, increment_invoice_sequence
 from app.repositories.booking_repository import create_booking as repo_create_booking
 from app.repositories.invoice_repository import get_invoice_by_quote_id
 from app.repositories.lead_repository import get_lead_by_id
@@ -238,19 +238,28 @@ def convert_quote_to_invoice(
         )
 
     today = date.today()
+    business = get_business_by_id(session, current_user.business_id)
+    if business is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found",
+        )
+
     seq = increment_invoice_sequence(session, current_user.business_id)
+    prefix = (business.invoice_prefix or "INV").strip() or "INV"
+    default_due_days = business.default_due_days if business.default_due_days is not None else 15
     invoice = Invoice(
         business_id=current_user.business_id,
         quote_id=quote.id,
         lead_id=quote.lead_id,
         booking_id=None,
-        invoice_number=f"INV-{seq:03d}",
+        invoice_number=f"{prefix}-{seq:03d}",
         subtotal=quote.subtotal,
         tax_total=quote.tax_total,
         total_amount=quote.total_amount,
         status=InvoiceStatus.DRAFT,
         issued_date=today,
-        due_date=today + timedelta(days=15),
+        due_date=today + timedelta(days=default_due_days),
     )
     session.add(invoice)
     session.flush()

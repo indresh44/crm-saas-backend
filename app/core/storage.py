@@ -36,3 +36,21 @@ def upload_file(
         ContentType=content_type,
     )
     return f"{settings.R2_PUBLIC_URL}/{key}"
+
+
+def upload_bytes_to_r2(
+    file_bytes: bytes,
+    filename: str,
+    content_type: str,
+) -> str:
+    """
+    Upload raw bytes to R2 with the provided key and return the public URL.
+    """
+    client = get_r2_client()
+    client.put_object(
+        Bucket=settings.R2_BUCKET_NAME,
+        Key=filename,
+        Body=file_bytes,
+        ContentType=content_type,
+    )
+    return f"{settings.R2_PUBLIC_URL}/{filename}"
