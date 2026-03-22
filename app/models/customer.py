@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime
 from typing import Optional
 import uuid
 
@@ -47,6 +48,24 @@ class CustomerOutstandingResponse(SQLModel):
     total_paid: Decimal
     outstanding: Decimal
     overdue_invoices: int
+
+
+class CustomerRecentActivity(SQLModel):
+    type: str
+    description: str
+    date: datetime
+    lead_title: Optional[str] = None
+
+
+class CustomerSummaryResponse(SQLModel):
+    customer: CustomerRead
+    lifetime_value: Decimal
+    total_outstanding: Decimal
+    total_leads: int
+    active_leads: int
+    total_invoices: int
+    upcoming_meetings: int
+    recent_activities: list[CustomerRecentActivity]
 
 
 class CustomerUpdate(SQLModel):

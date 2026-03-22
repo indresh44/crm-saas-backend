@@ -1,11 +1,19 @@
+from datetime import date
+from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
 
+from sqlalchemy import and_, case, func
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
+from app.models.customer import Customer
+from app.models.enums import InvoiceStatus
 from app.models.invoice import Invoice
+from app.models.invoice import InvoiceListItem
 from app.models.invoice_item import InvoiceItem
+from app.models.lead import Lead
+from app.models.payment import Payment
 
 
 def create_invoice(session: Session, invoice: Invoice) -> Invoice:
@@ -122,3 +130,119 @@ def get_invoice_by_quote_id(session: Session, business_id: UUID, quote_id: UUID)
         Invoice.quote_id == quote_id,
     )
     return session.exec(statement).first()
+
+
+def list_invoices_enriched(
+    session: Session,
+    business_id: UUID,
+    customer_id: UUID | None = None,
+    status: InvoiceStatus | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    lead_id: UUID | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[InvoiceListItem], int, dict[str, Decimal | int]]:
+    payment_totals_sq = (
+        select(
+            Payment.invoice_id.label("invoice_id"),
+            func.coalesce(func.sum(Payment.amount), 0).label("amount_paid"),
+        )
+        .where(Payment.business_id == business_id)
+        .group_by(Payment.invoice_id)
+        .subquery()
+    )
+
+    statement = (
+        select(
+            Invoice,
+            func.coalesce(payment_totals_sq.c.amount_paid, 0).label("amount_paid"),
+            Customer.name.label("customer_name"),
+            Customer.phone.label("customer_phone"),
+            Lead.title.label("lead_title"),
+        )
+        .outerjoin(payment_totals_sq, Invoice.id == payment_totals_sq.c.invoice_id)
+        .outerjoin(Lead, Invoice.lead_id == Lead.id)
+        .outerjoin(Customer, Lead.customer_id == Customer.id)
+        .where(Invoice.business_id == business_id)
+    )
+
+    if customer_id is not None:
+        statement = statement.where(Customer.id == customer_id)
+
+    if status is not None:
+        statement = statement.where(Invoice.status == status)
+
+    if from_date is not None:
+        statement = statement.where(Invoice.issued_date >= from_date)
+
+    if to_date is not None:
+        statement = statement.where(Invoice.issued_date <= to_date)
+
+    if lead_id is not None:
+        statement = statement.where(Invoice.lead_id == lead_id)
+
+    filtered_sq = statement.order_by(None).subquery()
+    total = session.exec(select(func.count()).select_from(filtered_sq)).one()
+
+    balance_due_expr = filtered_sq.c.total_amount - filtered_sq.c.amount_paid
+    summary_row = session.exec(
+        select(
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                filtered_sq.c.status.notin_(
+                                    [InvoiceStatus.PAID.value, InvoiceStatus.DRAFT.value]
+                                ),
+                                balance_due_expr > 0,
+                            ),
+                            balance_due_expr,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("total_outstanding"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                filtered_sq.c.status.notin_(
+                                    [InvoiceStatus.PAID.value, InvoiceStatus.DRAFT.value]
+                                ),
+                                balance_due_expr > 0,
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("outstanding_count"),
+        )
+    ).one()
+
+    rows = session.exec(
+        statement.order_by(Invoice.issued_date.desc()).offset(offset).limit(limit)
+    ).all()
+
+    invoices: list[InvoiceListItem] = []
+    for invoice, amount_paid, customer_name, customer_phone, lead_title in rows:
+        invoice_read = InvoiceListItem.model_validate(invoice, from_attributes=True)
+        invoice_read.amount_paid = amount_paid
+        invoice_read.customer_name = customer_name
+        invoice_read.customer_phone = customer_phone
+        invoice_read.lead_title = lead_title
+        invoices.append(invoice_read)
+
+    return (
+        invoices,
+        total,
+        {
+            "total_outstanding": summary_row.total_outstanding,
+            "outstanding_count": int(summary_row.outstanding_count),
+        },
+    )

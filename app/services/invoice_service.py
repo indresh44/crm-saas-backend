@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from sqlmodel import SQLModel, Session
 
 from app.models.enums import InvoiceStatus
-from app.models.invoice import Invoice
+from app.models.invoice import Invoice, InvoiceListItem
 from app.models.invoice_item import InvoiceItem, InvoiceItemCreate
 from app.models.user import User
 from app.repositories.business_repository import get_business_by_id, increment_invoice_sequence
@@ -15,10 +15,8 @@ from app.repositories.booking_repository import get_booking_by_id
 from app.repositories.invoice_repository import (
     get_invoice_by_id,
     get_invoice_with_items,
-    list_invoices_for_business,
-    list_invoices_for_business_with_items,
-    list_invoices_for_lead,
-    list_invoices_for_lead_with_items,
+    list_invoices_enriched,
+    list_items_for_invoice,
     replace_invoice_items,
     update_invoice as repo_update_invoice,
 )
@@ -195,9 +193,14 @@ def update_invoice(
 def list_invoices(
     session: Session,
     current_user: User,
+    customer_id: UUID | None = None,
+    status: InvoiceStatus | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
     lead_id: UUID | None = None,
-    include_items: bool = False,
-) -> List[Invoice]:
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[InvoiceListItem], int, dict[str, Decimal | int]]:
     if lead_id is not None:
         lead = get_lead_by_id(
             session=session,
@@ -209,25 +212,37 @@ def list_invoices(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Lead not found",
             )
-        if include_items:
-            return list_invoices_for_lead_with_items(
-                session=session,
-                business_id=current_user.business_id,
-                lead_id=lead_id,
-            )
-        return list_invoices_for_lead(
-            session=session,
-            business_id=current_user.business_id,
-            lead_id=lead_id,
+
+    return list_invoices_enriched(
+        session=session,
+        business_id=current_user.business_id,
+        customer_id=customer_id,
+        status=status,
+        from_date=from_date,
+        to_date=to_date,
+        lead_id=lead_id,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def list_invoice_items(
+    session: Session,
+    current_user: User,
+    invoice_id: UUID,
+) -> List[InvoiceItem]:
+    invoice = get_invoice_by_id(
+        session=session,
+        business_id=current_user.business_id,
+        invoice_id=invoice_id,
+    )
+    if invoice is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice not found",
         )
 
-    if include_items:
-        return list_invoices_for_business_with_items(
-            session,
-            business_id=current_user.business_id,
-        )
-
-    return list_invoices_for_business(session, business_id=current_user.business_id)
+    return list_items_for_invoice(session=session, invoice_id=invoice_id)
 
 
 class InvoiceData(SQLModel):

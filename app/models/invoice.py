@@ -49,6 +49,26 @@ class InvoiceReadWithItems(InvoiceRead):
     items: List[InvoiceItemRead]
 
 
+class InvoiceListItem(InvoiceRead):
+    amount_paid: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12)
+    customer_name: Optional[str] = None
+    customer_phone: Optional[str] = None
+    lead_title: Optional[str] = None
+
+
+class InvoiceListSummary(SQLModel):
+    total_outstanding: Decimal = Field(default=Decimal("0.00"), decimal_places=2, max_digits=12)
+    outstanding_count: int = 0
+
+
+class InvoiceListResponse(SQLModel):
+    items: List[InvoiceListItem]
+    total: int
+    limit: int
+    offset: int
+    summary: InvoiceListSummary
+
+
 class Invoice(InvoiceBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
     __tablename__ = "invoices"
 

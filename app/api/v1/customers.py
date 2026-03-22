@@ -12,6 +12,7 @@ from app.models.customer import (
     CustomerOutstandingResponse,
     CustomerRead,
     CustomerSearchResponse,
+    CustomerSummaryResponse,
     CustomerUpdate,
 )
 from app.models.user import User
@@ -19,6 +20,7 @@ from app.services.customer_service import (
     create_customer as service_create_customer,
     get_customer_by_phone as service_get_customer_by_phone,
     get_customer as service_get_customer,
+    get_customer_summary as service_get_customer_summary,
     get_customer_outstanding as service_get_customer_outstanding,
     list_customers as service_list_customers,
     search_customers as service_search_customers,
@@ -97,6 +99,20 @@ def get_customer_outstanding(
         customer_id=customer_id,
     )
     return CustomerOutstandingResponse(**outstanding)
+
+
+@router.get("/customers/{customer_id}/summary", response_model=CustomerSummaryResponse)
+def get_customer_summary(
+    customer_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> CustomerSummaryResponse:
+    summary = service_get_customer_summary(
+        session=session,
+        current_user=current_user,
+        customer_id=customer_id,
+    )
+    return CustomerSummaryResponse(**summary)
 
 
 @router.patch("/customers/{customer_id}", response_model=CustomerRead)

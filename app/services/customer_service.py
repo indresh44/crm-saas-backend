@@ -17,6 +17,7 @@ from app.repositories.customer_repository import (
     create_customer as repo_create_customer,
     get_customer_by_phone as repo_get_customer_by_phone,
     get_customer_by_id,
+    get_customer_summary as repo_get_customer_summary,
     list_customers_for_business,
     search_customers as repo_search_customers,
     update_customer as repo_update_customer,
@@ -222,3 +223,21 @@ def update_customer(
     for field, value in update_data.items():
         setattr(customer, field, value)
     return repo_update_customer(session, customer)
+
+
+def get_customer_summary(
+    session: Session,
+    current_user: User,
+    customer_id: UUID,
+) -> dict:
+    summary = repo_get_customer_summary(
+        session=session,
+        business_id=current_user.business_id,
+        customer_id=customer_id,
+    )
+    if summary is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found",
+        )
+    return summary

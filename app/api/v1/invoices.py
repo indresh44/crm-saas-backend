@@ -1,5 +1,6 @@
 from typing import List
 from uuid import UUID
+from datetime import date
 
 from decimal import Decimal
 
@@ -8,7 +9,9 @@ from sqlmodel import Session
 
 from app.core.database import get_session
 from app.core.dependencies import get_current_user
-from app.models.invoice import InvoiceRead, InvoiceReadWithItems
+from app.models.enums import InvoiceStatus
+from app.models.invoice import InvoiceListResponse, InvoiceListSummary, InvoiceRead
+from app.models.invoice_item import InvoiceItemRead
 from app.models.user import User
 from app.repositories.business_repository import get_business_by_id
 from app.repositories.customer_repository import get_customer_by_id
@@ -20,6 +23,7 @@ from app.services.invoice_service import (
     InvoiceUpdateWithItems,
     create_invoice as service_create_invoice,
     get_invoice as service_get_invoice,
+    list_invoice_items as service_list_invoice_items,
     list_invoices as service_list_invoices,
     update_invoice as service_update_invoice,
 )
@@ -42,23 +46,51 @@ def create_invoice(
     return invoice
 
 
-@router.get("/invoices", response_model=List[InvoiceReadWithItems | InvoiceRead])
+@router.get("/invoices", response_model=InvoiceListResponse)
 def list_invoices(
+    customer_id: UUID | None = None,
+    status: InvoiceStatus | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
     lead_id: UUID | None = None,
-    include_items: bool = False,
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-) -> List[InvoiceReadWithItems | InvoiceRead]:
-    invoices = service_list_invoices(
+) -> InvoiceListResponse:
+    invoices, total, summary = service_list_invoices(
         session=session,
         current_user=current_user,
+        customer_id=customer_id,
+        status=status,
+        from_date=from_date,
+        to_date=to_date,
         lead_id=lead_id,
-        include_items=include_items,
+        limit=limit,
+        offset=offset,
     )
-    if include_items:
-        return [InvoiceReadWithItems.model_validate(invoice) for invoice in invoices]
 
-    return [InvoiceRead.model_validate(invoice) for invoice in invoices]
+    return InvoiceListResponse(
+        items=invoices,
+        total=total,
+        limit=limit,
+        offset=offset,
+        summary=InvoiceListSummary(**summary),
+    )
+
+
+@router.get("/invoices/{invoice_id}/items", response_model=List[InvoiceItemRead])
+def get_invoice_items(
+    invoice_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> List[InvoiceItemRead]:
+    items = service_list_invoice_items(
+        session=session,
+        current_user=current_user,
+        invoice_id=invoice_id,
+    )
+    return items
 
 
 @router.get("/invoices/{invoice_id}", response_model=InvoiceRead)
