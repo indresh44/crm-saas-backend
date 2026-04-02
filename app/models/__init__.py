@@ -4,6 +4,7 @@ from app.models.attachment import Attachment, AttachmentRead
 from app.models.booking import Booking, BookingCreate, BookingRead
 from app.models.business import Business, BusinessCreate, BusinessRead
 from app.models.catalog_item import CatalogItem, CatalogItemCreate, CatalogItemRead, CatalogItemUpdate
+from app.models.chat import ChatMessage, ChatThread
 from app.models.customer import (
     Customer,
     CustomerCreate,
@@ -72,6 +73,8 @@ __all__ = [
     "CatalogItemCreate",
     "CatalogItemRead",
     "CatalogItemUpdate",
+    "ChatMessage",
+    "ChatThread",
     "Customer",
     "CustomerCreate",
     "CustomerCreateRequest",
