@@ -7,10 +7,14 @@ from uuid import UUID
 from sqlmodel import Session
 
 from app.models.dashboard import OverdueInvoiceSummary, PaymentSummaryRead
+from app.models.lead import LeadRead
+from app.models.user import User
 from app.repositories.dashboard_repository import (
     fetch_monthly_collections,
     fetch_outstanding_and_overdue,
 )
+from app.services.lead_followup_service import list_overdue_followups, list_todays_followups
+from app.services.lead_service import list_leads
 
 
 def _to_float(value: Decimal | int | float) -> float:
@@ -56,3 +60,33 @@ def get_payment_summary(
         outstanding_invoice_count=int(outstanding_data["outstanding_invoice_count"]),
         overdue_invoices=overdue_invoices,
     )
+
+
+def get_dashboard_summary(
+    session: Session,
+    current_user: User,
+) -> dict:
+    todays_followups = list_todays_followups(session=session, current_user=current_user)
+    overdue_followups = list_overdue_followups(session=session, current_user=current_user)
+    payment_summary = get_payment_summary(session=session, business_id=current_user.business_id)
+    recent_leads = list_leads(session=session, current_user=current_user)[:5]
+
+    return {
+        "todays_followups_count": len(todays_followups),
+        "overdue_followups_count": len(overdue_followups),
+        "total_outstanding": payment_summary.total_outstanding,
+        "outstanding_invoice_count": payment_summary.outstanding_invoice_count,
+        "recent_leads": [_lead_summary(lead) for lead in recent_leads],
+    }
+
+
+def _lead_summary(lead: LeadRead) -> dict:
+    return {
+        "id": str(lead.id),
+        "title": lead.title,
+        "customer_name": lead.customer_name,
+        "customer_phone": lead.customer_phone,
+        "stage_name": lead.stage_name,
+        "estimated_value": float(lead.estimated_value) if lead.estimated_value is not None else None,
+        "created_at": lead.created_at.date().isoformat(),
+    }

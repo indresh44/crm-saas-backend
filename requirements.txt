@@ -13,3 +13,4 @@ PyJWT>=2.8.0
 weasyprint>=61.0
 Jinja2>=3.1.0
 num2words>=0.5.13
+litellm

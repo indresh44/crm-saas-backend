@@ -12,6 +12,7 @@ from app.models.payment import Payment, PaymentCreate
 from app.models.user import User
 from app.repositories.invoice_repository import get_invoice_by_id
 from app.services.invoice_service import clear_invoice_pdf
+from app.services.invoice_service import list_customer_invoices as service_list_customer_invoices
 
 
 def create_payment(
@@ -66,6 +67,33 @@ def list_payments(
         statement = statement.where(Payment.invoice_id == invoice_id)
 
     statement = statement.order_by(Payment.created_at.desc())
+    return list(session.exec(statement).all())
+
+
+def list_customer_payments(
+    session: Session,
+    current_user: User,
+    customer_id: UUID,
+) -> List[Payment]:
+    invoices, _, _ = service_list_customer_invoices(
+        session=session,
+        current_user=current_user,
+        customer_id=customer_id,
+        limit=100,
+        offset=0,
+    )
+    invoice_ids = [invoice.id for invoice in invoices]
+    if not invoice_ids:
+        return []
+
+    statement = (
+        select(Payment)
+        .where(
+            Payment.business_id == current_user.business_id,
+            Payment.invoice_id.in_(invoice_ids),
+        )
+        .order_by(Payment.payment_date.desc(), Payment.created_at.desc())
+    )
     return list(session.exec(statement).all())
 
 

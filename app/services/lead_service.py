@@ -59,6 +59,30 @@ def list_leads(
     )
 
 
+def search_leads(
+    session: Session,
+    current_user: User,
+    query: str,
+    limit: int = 10,
+) -> list[LeadRead]:
+    cleaned_query = query.strip().lower()
+    if len(cleaned_query) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Query must be at least 2 characters long",
+        )
+
+    leads = list_leads(session=session, current_user=current_user)
+    matches = [
+        lead
+        for lead in leads
+        if cleaned_query in (lead.title or "").lower()
+        or cleaned_query in (lead.customer_name or "").lower()
+        or cleaned_query in (lead.notes or "").lower()
+    ]
+    return matches[:limit]
+
+
 def get_todays_followups(
     session: Session,
     business_id: UUID,

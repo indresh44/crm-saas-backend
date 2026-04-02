@@ -11,6 +11,7 @@ from app.models.user import User
 from app.repositories.lead_followup_repository import (
     create_lead_followup as repo_create_lead_followup,
     get_lead_followup_by_id,
+    list_followups_before_datetime,
     list_followups_for_datetime_range,
     list_followups_for_lead,
     update_lead_followup as repo_update_lead_followup,
@@ -71,6 +72,23 @@ def list_todays_followups(
         session=session,
         start_at=start_at,
         end_at=end_at,
+    )
+    business_lead_ids = {
+        followup.lead_id
+        for followup in followups
+        if get_lead_by_id(session, current_user.business_id, followup.lead_id) is not None
+    }
+    return [followup for followup in followups if followup.lead_id in business_lead_ids]
+
+
+def list_overdue_followups(
+    session: Session,
+    current_user: User,
+) -> List[LeadFollowup]:
+    now = datetime.now(timezone.utc)
+    followups = list_followups_before_datetime(
+        session=session,
+        before_at=now,
     )
     business_lead_ids = {
         followup.lead_id

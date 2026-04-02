@@ -24,6 +24,7 @@ from app.repositories.quote_repository import (
     get_quote_by_id,
     get_quote_with_items,
     list_items_for_quote,
+    list_quotes_for_business,
     replace_quote_items,
     update_quote as repo_update_quote,
 )
@@ -122,6 +123,26 @@ def get_quote(
 
 def list_quote_items(session: Session, quote_id: UUID) -> List[QuoteItem]:
     return list_items_for_quote(session, quote_id)
+
+
+def list_quotes_for_lead(
+    session: Session,
+    current_user: User,
+    lead_id: UUID,
+    limit: int = 3,
+) -> List[Quote]:
+    _ = get_lead_by_id(
+        session=session,
+        business_id=current_user.business_id,
+        lead_id=lead_id,
+    )
+    quotes = [
+        quote
+        for quote in list_quotes_for_business(session, current_user.business_id)
+        if quote.lead_id == lead_id
+    ]
+    quotes.sort(key=lambda quote: quote.created_at, reverse=True)
+    return quotes[:limit]
 
 
 def update_quote(

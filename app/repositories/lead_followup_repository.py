@@ -48,6 +48,21 @@ def list_followups_for_datetime_range(
     return list(session.exec(statement).all())
 
 
+def list_followups_before_datetime(
+    session: Session,
+    before_at: datetime,
+) -> List[LeadFollowup]:
+    statement = (
+        select(LeadFollowup)
+        .where(
+            LeadFollowup.scheduled_at < before_at,
+            LeadFollowup.status == "pending",
+        )
+        .order_by(LeadFollowup.scheduled_at)
+    )
+    return list(session.exec(statement).all())
+
+
 def update_lead_followup(session: Session, followup: LeadFollowup) -> LeadFollowup:
     session.add(followup)
     session.commit()

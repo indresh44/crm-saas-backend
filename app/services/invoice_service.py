@@ -245,6 +245,24 @@ def list_invoice_items(
     return list_items_for_invoice(session=session, invoice_id=invoice_id)
 
 
+def list_customer_invoices(
+    session: Session,
+    current_user: User,
+    customer_id: UUID,
+    status: InvoiceStatus | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> tuple[list[InvoiceListItem], int, dict[str, Decimal | int]]:
+    return list_invoices(
+        session=session,
+        current_user=current_user,
+        customer_id=customer_id,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
+
+
 class InvoiceData(SQLModel):
     booking_id: Optional[UUID] = None
     lead_id: Optional[UUID] = None

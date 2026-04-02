@@ -5,6 +5,7 @@ from app.api.v1.attachments import router as attachments_router
 from app.api.v1.bookings import router as bookings_router
 from app.api.v1.businesses import router as businesses_router
 from app.api.v1.catalog_items import router as catalog_items_router
+from app.api.v1.chat import router as chat_router
 from app.api.v1.customers import router as customers_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.users import router as users_router
@@ -54,6 +55,7 @@ app.include_router(auth_router, prefix="/api/v1", tags=["auth"])
 app.include_router(businesses_router, prefix="/api/v1", tags=["businesses"])
 app.include_router(users_router, prefix="/api/v1", tags=["users"])
 app.include_router(catalog_items_router, prefix="/api/v1", tags=["catalog_items"])
+app.include_router(chat_router, prefix="/api/v1", tags=["chat"])
 app.include_router(customers_router, prefix="/api/v1", tags=["customers"])
 app.include_router(dashboard_router, prefix="/api/v1", tags=["dashboard"])
 app.include_router(leads_router, prefix="/api/v1", tags=["leads"])
