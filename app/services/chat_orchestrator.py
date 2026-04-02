@@ -22,6 +22,7 @@ from app.repositories import chat_message_repo, chat_thread_repo
 from app.services import customer_service, lead_followup_service, lead_service, pipeline_service
 from app.services.context_assembler import ContextAssembler
 from app.services.llm_service import LLMResponse, LLMService
+from app.services.suggestion_engine import SuggestionEngine
 from app.services.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,7 @@ class ChatOrchestrator:
         assembled.messages.append({"role": "user", "content": user_message})
 
         tool_executor = ToolExecutor(session=self.session, current_user=self.current_user)
+        suggestion_engine = SuggestionEngine(session=self.session, current_user=self.current_user)
         pending_action: dict[str, Any] | None = None
         tool_traces: list[dict[str, Any]] = []
 
@@ -134,12 +136,19 @@ class ChatOrchestrator:
         )
 
         asyncio.create_task(self._maybe_summarize(thread.id))
+        last_action = tool_traces[-1]["tool_name"] if tool_traces else None
+        suggestions = await suggestion_engine.get_suggestions(
+            context_type=context_type,
+            context_id=context_id,
+            business_id=self.current_user.business_id,
+            last_action=last_action,
+        )
 
         return ChatMessageResponse(
             thread_id=thread.id,
             reply=reply,
             action=ChatAction(**pending_action) if pending_action else None,
-            suggestions=[],
+            suggestions=suggestions,
             tokens_used=tokens_used,
         )
 
@@ -194,17 +203,11 @@ class ChatOrchestrator:
         confirmed_data: dict[str, Any],
     ) -> ChatMessageResponse:
         thread = self._get_thread_or_403(thread_id)
+        suggestion_engine = SuggestionEngine(session=self.session, current_user=self.current_user)
 
         if action_type == "confirm_create_lead":
-            try:
-                result = self._confirm_create_lead(confirmed_data)
-                reply = f"✓ Lead created successfully. Lead ID: {result['lead_id']}"
-            except Exception as exc:
-                print("Failed to confirm create lead action for thread=%s error=%s", thread_id, str(exc), exc_info=True)
-                # raise HTTPException(
-                #     status_code=status.HTTP_400_BAD_REQUEST,
-                #     detail=f"Failed to create lead: {str(exc)}",
-                # )
+            result = self._confirm_create_lead(confirmed_data)
+            reply = f"✓ Lead created successfully. Lead ID: {result['lead_id']}"
         elif action_type == "confirm_update_lead_stage":
             result = self._confirm_update_lead_stage(confirmed_data)
             reply = f"✓ Lead moved to {result['stage_name']}."
@@ -216,8 +219,6 @@ class ChatOrchestrator:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Unsupported action type",
             )
-        print("\nAction confirmed for thread=%s action=%s result=%s", thread_id, action_type, result,"\n")
-        self.session.commit() 
 
         chat_message_repo.create(
             session=self.session,
@@ -228,12 +229,18 @@ class ChatOrchestrator:
             tool_output=result,
             tokens_used=0,
         )
+        suggestions = await suggestion_engine.get_suggestions(
+            context_type=thread.context_type,
+            context_id=thread.context_id,
+            business_id=self.current_user.business_id,
+            last_action=action_type.removeprefix("confirm_"),
+        )
 
         return ChatMessageResponse(
             thread_id=thread.id,
             reply=reply,
             action=None,
-            suggestions=[],
+            suggestions=suggestions,
             tokens_used=0,
         )
 
