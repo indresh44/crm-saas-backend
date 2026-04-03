@@ -381,6 +381,7 @@ class ToolExecutor:
             session=self.session,
             current_user=self.current_user,
         )
+        current_stage = next((item for item in stages if item.id == lead.stage_id), None)
         stage = next((item for item in stages if item.id == stage_id), None)
         if stage is None:
             raise ValueError("Stage not found for this business")
@@ -389,6 +390,7 @@ class ToolExecutor:
             "lead_id": str(lead.id),
             "lead_title": lead.title,
             "current_stage_id": str(lead.stage_id),
+            "current_stage_name": current_stage.name if current_stage else None,
             "target_stage_id": str(stage.id),
             "target_stage_name": stage.name,
         }
