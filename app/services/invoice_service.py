@@ -11,6 +11,7 @@ from app.models.invoice import Invoice, InvoiceListItem
 from app.models.invoice_item import InvoiceItem, InvoiceItemCreate
 from app.models.user import User
 from app.repositories.business_repository import get_business_by_id, increment_invoice_sequence
+from app.repositories.customer_repository import get_customer_by_id
 from app.repositories.booking_repository import get_booking_by_id
 from app.repositories.invoice_repository import (
     get_invoice_by_id,
@@ -21,7 +22,9 @@ from app.repositories.invoice_repository import (
     update_invoice as repo_update_invoice,
 )
 from app.repositories.lead_repository import get_lead_by_id
+from app.repositories.payment_repository import list_payments_for_invoice
 from app.services.line_item_calculator import calculate_totals
+from app.services.invoice_pdf_service import generate_invoice_pdf
 
 
 def clear_invoice_pdf(session: Session, invoice: Invoice) -> None:
@@ -260,6 +263,57 @@ def list_customer_invoices(
         status=status,
         limit=limit,
         offset=offset,
+    )
+
+
+def get_or_generate_pdf(
+    session: Session,
+    current_user: User,
+    invoice_id: UUID,
+    force: bool = False,
+) -> str:
+    invoice = get_invoice_with_items(
+        session=session,
+        business_id=current_user.business_id,
+        invoice_id=invoice_id,
+    )
+    if invoice is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice not found",
+        )
+
+    if invoice.pdf_url and not force:
+        return invoice.pdf_url
+
+    business = get_business_by_id(session, current_user.business_id)
+    if business is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Business not found",
+        )
+
+    customer = None
+    if invoice.lead_id is not None:
+        lead = get_lead_by_id(session, current_user.business_id, invoice.lead_id)
+        if lead is not None and lead.customer_id is not None:
+            customer = get_customer_by_id(session, current_user.business_id, lead.customer_id)
+
+    if customer is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot generate PDF: customer not found for this invoice",
+        )
+
+    payments = list_payments_for_invoice(session, current_user.business_id, invoice.id)
+    payments_total = sum((payment.amount for payment in payments), Decimal("0"))
+    return generate_invoice_pdf(
+        session=session,
+        invoice=invoice,
+        business=business,
+        customer=customer,
+        items=invoice.items,
+        payments_total=payments_total,
     )
 
 

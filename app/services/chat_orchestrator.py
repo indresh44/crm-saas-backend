@@ -20,6 +20,8 @@ from app.models.lead_followup import LeadFollowupCreate
 from app.models.user import User
 from app.repositories import chat_message_repo, chat_thread_repo
 from app.services import customer_service, lead_followup_service, lead_service, pipeline_service
+from app.services import invoice_service, lead_activity_service
+from app.services.chat.mention_parser import resolve_mentions
 from app.services.context_assembler import ContextAssembler
 from app.services.llm_service import LLMResponse, LLMService
 from app.services.suggestion_engine import SuggestionEngine
@@ -40,6 +42,7 @@ class ChatMessageResponse(BaseModel):
     action: ChatAction | None = None
     suggestions: list[str] = []
     tokens_used: int = 0
+    pdf: dict[str, Any] | None = None
 
 
 class ChatOrchestrator:
@@ -66,6 +69,11 @@ class ChatOrchestrator:
         context_id: UUID | None,
         thread_id: int | None = None,
     ) -> ChatMessageResponse:
+        parsed = resolve_mentions(
+            session=self.session,
+            current_user=self.current_user,
+            message=user_message,
+        )
         thread = self._resolve_thread(
             business_id=self.current_user.business_id,
             context_type=context_type,
@@ -85,7 +93,9 @@ class ChatOrchestrator:
             thread=thread,
             user_message=user_message,
         )
-        assembled.messages.append({"role": "user", "content": user_message})
+        if parsed.mention_context:
+            assembled.system_prompt = f"{assembled.system_prompt}\n\n{parsed.mention_context}"
+        assembled.messages.append({"role": "user", "content": parsed.clean_message})
 
         tool_executor = ToolExecutor(session=self.session, current_user=self.current_user)
         suggestion_engine = SuggestionEngine(session=self.session, current_user=self.current_user)
@@ -143,6 +153,7 @@ class ChatOrchestrator:
             business_id=self.current_user.business_id,
             last_action=last_action,
         )
+        pdf_payload = self._extract_pdf_payload(tool_traces)
 
         return ChatMessageResponse(
             thread_id=thread.id,
@@ -150,6 +161,7 @@ class ChatOrchestrator:
             action=ChatAction(**pending_action) if pending_action else None,
             suggestions=suggestions,
             tokens_used=tokens_used,
+            pdf=pdf_payload,
         )
 
     async def _maybe_summarize(self, thread_id: int) -> None:
@@ -214,6 +226,12 @@ class ChatOrchestrator:
         elif action_type == "confirm_schedule_followup":
             result = self._confirm_schedule_followup(confirmed_data)
             reply = f"✓ Follow-up scheduled for {result['scheduled_date']}."
+        elif action_type == "confirm_create_invoice":
+            result = self._confirm_create_invoice(confirmed_data)
+            reply = f"✓ Invoice {result['invoice_number']} created for ₹{result['total_amount']:,.2f}"
+        elif action_type == "confirm_add_lead_note":
+            result = self._confirm_add_lead_note(confirmed_data)
+            reply = "✓ Note added to lead."
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -374,12 +392,108 @@ class ChatOrchestrator:
             "note": followup.note,
         }
 
+    def _confirm_create_invoice(self, confirmed_data: dict[str, Any]) -> dict[str, Any]:
+        from app.models.enums import InvoiceStatus
+        from app.models.invoice_item import InvoiceItemCreate
+        from app.services.invoice_service import InvoiceCreateWithItems, InvoiceData
+
+        customer_id = confirmed_data.get("customer_id")
+        lead_id = confirmed_data.get("lead_id")
+
+        if not lead_id and customer_id:
+            leads = lead_service.list_leads(
+                session=self.session,
+                current_user=self.current_user,
+                customer_id=UUID(str(customer_id)),
+            )
+            if leads:
+                lead_id = str(leads[0].id)
+
+        if not lead_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invoice creation requires an associated lead for this customer",
+            )
+
+        items = [
+            InvoiceItemCreate(
+                catalog_item_id=UUID(str(item["catalog_item_id"])) if item.get("catalog_item_id") else None,
+                name=str(item.get("name") or "").strip(),
+                description=str(item.get("description") or item.get("name") or "").strip(),
+                unit=str(item.get("unit") or "piece"),
+                quantity=self._to_decimal(item.get("quantity")) or Decimal("1"),
+                unit_price=self._to_decimal(item.get("rate")) or Decimal("0"),
+                gst_percent=self._to_decimal(item.get("gst_percent")) or Decimal("18"),
+            )
+            for item in confirmed_data.get("items", [])
+        ]
+
+        invoice = invoice_service.create_invoice(
+            session=self.session,
+            current_user=self.current_user,
+            data=InvoiceCreateWithItems(
+                invoice=InvoiceData(
+                    lead_id=UUID(str(lead_id)),
+                    status=InvoiceStatus.DRAFT,
+                    issued_date=datetime.fromisoformat(str(confirmed_data["issued_date"])).date(),
+                    due_date=datetime.fromisoformat(str(confirmed_data["due_date"])).date(),
+                ),
+                items=items,
+            ),
+        )
+        return {
+            "invoice_id": str(invoice.id),
+            "invoice_number": invoice.invoice_number,
+            "total_amount": float(invoice.total_amount),
+        }
+
+    def _confirm_add_lead_note(self, confirmed_data: dict[str, Any]) -> dict[str, Any]:
+        from app.models.enums import LeadActivityType
+        from app.models.lead import LeadActivityCreate
+
+        lead_id = UUID(str(confirmed_data["lead_id"]))
+        note = str(confirmed_data.get("note") or "").strip()
+        if not note:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Note content is required",
+            )
+
+        lead_activity_service.create_activity(
+            session=self.session,
+            current_user=self.current_user,
+            lead_id=lead_id,
+            data=LeadActivityCreate(
+                lead_id=lead_id,
+                type=LeadActivityType.NOTE,
+                description=note,
+                created_by=self.current_user.id,
+            ),
+        )
+        return {
+            "lead_id": str(lead_id),
+            "note": note,
+        }
+
     def _tool_name_for_storage(self, tool_traces: list[dict[str, Any]]) -> str | None:
         if not tool_traces:
             return None
         if len(tool_traces) == 1:
             return str(tool_traces[0]["tool_name"])
         return "tool_loop"
+
+    def _extract_pdf_payload(self, tool_traces: list[dict[str, Any]]) -> dict[str, Any] | None:
+        for trace in reversed(tool_traces):
+            output = trace.get("tool_output") or {}
+            data = output.get("data") or {}
+            pdf_url = data.get("pdf_url")
+            if pdf_url:
+                return {
+                    "url": pdf_url,
+                    "invoice_id": data.get("invoice_id"),
+                    "invoice_number": data.get("invoice_number"),
+                }
+        return None
 
     def _to_decimal(self, value: Any) -> Decimal | None:
         if value is None or value == "":

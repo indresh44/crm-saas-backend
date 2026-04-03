@@ -42,7 +42,12 @@ def _render_pdf(html_content: str) -> bytes:
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="WeasyPrint is unavailable. Install its system libraries before generating PDFs.",
+            detail=(
+                "WeasyPrint is installed but unavailable at runtime. "
+                "This usually means required native libraries are missing "
+                "(for example Cairo/Pango/GLib on Windows or Linux). "
+                f"Original error: {exc}"
+            ),
         ) from exc
 
     return HTML(string=html_content, base_url=str(TEMPLATE_DIR)).write_pdf()

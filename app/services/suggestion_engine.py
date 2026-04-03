@@ -67,6 +67,10 @@ class SuggestionEngine:
             "search_customer": ["Show their outstanding", "Show their invoices"],
             "search_lead": ["Show lead details", "Show follow-up history"],
             "get_catalog_items": ["Create a new lead", "Prepare an invoice"],
+            "create_invoice": ["Generate PDF", "Share on WhatsApp"],
+            "prepare_invoice": ["Review invoice", "Confirm invoice"],
+            "generate_invoice_pdf": ["Share on WhatsApp", "Create another invoice"],
+            "add_lead_note": ["Review note", "Confirm note"],
         }
 
         suggestions = list(mapping.get(last_action, []))

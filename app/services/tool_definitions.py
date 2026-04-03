@@ -275,6 +275,123 @@ TOOL_SCHEDULE_FOLLOWUP = {
     },
 }
 
+TOOL_PREPARE_INVOICE = {
+    "type": "function",
+    "function": {
+        "name": "prepare_invoice",
+        "description": (
+            "Prepare an invoice for a customer. Use when the user wants to create, generate, "
+            "or make an invoice. The user may specify items using @mentions, which include "
+            "catalog_item_id, default_rate, unit, gst_percent, and description in the "
+            "MENTIONED ENTITIES context, or describe items as free text."
+            "\n\nIMPORTANT RULES FOR LINE ITEMS:"
+            "\n- If the user @mentioned a catalog item, use its catalog_item_id, default_rate, "
+            "unit, gst_percent, and description from MENTIONED ENTITIES."
+            "\n- If the user explicitly states a different price, use the user's price instead "
+            "of the default rate."
+            "\n- If the user explicitly states a different unit, use the user's unit."
+            "\n- If the user mentions an item without an @mention, set catalog_item_id to null."
+            "\n- If quantity is not specified, default to 1."
+            "\n- If GST is not specified and the item is not from catalog, default to 18%."
+            "\n- Prefer lead_id from page context when available because invoices are linked to leads."
+            "\n\nFor customer: use customer_id from MENTIONED ENTITIES if the user @mentioned "
+            "a customer. If on a lead page, use the lead's customer. If the user provides just "
+            "a name, search for the customer first using search_customer."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "description": "UUID of the customer from @mention, page context, or search_customer.",
+                },
+                "customer_name": {
+                    "type": "string",
+                    "description": "Customer display name for form display.",
+                },
+                "lead_id": {
+                    "type": "string",
+                    "description": "UUID of the associated lead if known.",
+                },
+                "due_date": {
+                    "type": "string",
+                    "description": "Invoice due date in YYYY-MM-DD format. Default to 15 days from today if omitted.",
+                },
+                "items": {
+                    "type": "array",
+                    "description": "Invoice line items.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "catalog_item_id": {"type": "string"},
+                            "name": {"type": "string"},
+                            "description": {"type": "string"},
+                            "quantity": {"type": "number"},
+                            "rate": {"type": "number"},
+                            "unit": {"type": "string"},
+                            "gst_percent": {"type": "number"},
+                        },
+                        "required": ["name", "quantity", "rate"],
+                    },
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Optional invoice notes for the confirmation form.",
+                },
+            },
+            "required": ["customer_id", "customer_name", "items", "due_date"],
+        },
+    },
+}
+
+TOOL_GENERATE_INVOICE_PDF = {
+    "type": "function",
+    "function": {
+        "name": "generate_invoice_pdf",
+        "description": (
+            "Generate a PDF for an existing invoice and return the download URL. "
+            "Use when the user says generate PDF, download invoice, share invoice, "
+            "send invoice PDF, or after an invoice has just been created and wants the PDF."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "invoice_id": {
+                    "type": "string",
+                    "description": "UUID of the invoice to generate a PDF for.",
+                }
+            },
+            "required": ["invoice_id"],
+        },
+    },
+}
+
+TOOL_ADD_LEAD_NOTE = {
+    "type": "function",
+    "function": {
+        "name": "add_lead_note",
+        "description": (
+            "Add a note to a lead's activity log. Use when the user says note, add note, "
+            "remember that, mark that, or provides contextual information about a lead "
+            "that should be saved."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "lead_id": {
+                    "type": "string",
+                    "description": "UUID of the lead. Use page context when on a lead page.",
+                },
+                "note": {
+                    "type": "string",
+                    "description": "The note content to save.",
+                },
+            },
+            "required": ["lead_id", "note"],
+        },
+    },
+}
+
 DASHBOARD_TOOLS = [
     TOOL_GET_TODAYS_FOLLOWUPS,
     TOOL_GET_OVERDUE_FOLLOWUPS,
@@ -283,6 +400,9 @@ DASHBOARD_TOOLS = [
     TOOL_SEARCH_LEAD,
     TOOL_CREATE_LEAD,
     TOOL_GET_CATALOG_ITEMS,
+    TOOL_LIST_CUSTOMER_INVOICES,
+    TOOL_PREPARE_INVOICE,
+    TOOL_GENERATE_INVOICE_PDF,
 ]
 
 CUSTOMER_TOOLS = [
@@ -292,6 +412,8 @@ CUSTOMER_TOOLS = [
     TOOL_SEARCH_LEAD,
     TOOL_CREATE_LEAD,
     TOOL_GET_CATALOG_ITEMS,
+    TOOL_PREPARE_INVOICE,
+    TOOL_GENERATE_INVOICE_PDF,
 ]
 
 LEAD_TOOLS = [
@@ -301,6 +423,10 @@ LEAD_TOOLS = [
     TOOL_SCHEDULE_FOLLOWUP,
     TOOL_GET_CUSTOMER_OUTSTANDING,
     TOOL_GET_CATALOG_ITEMS,
+    TOOL_LIST_CUSTOMER_INVOICES,
+    TOOL_PREPARE_INVOICE,
+    TOOL_GENERATE_INVOICE_PDF,
+    TOOL_ADD_LEAD_NOTE,
 ]
 
 GLOBAL_TOOLS = [
@@ -311,6 +437,10 @@ GLOBAL_TOOLS = [
     TOOL_GET_DASHBOARD_SUMMARY,
     TOOL_CREATE_LEAD,
     TOOL_GET_CATALOG_ITEMS,
+    TOOL_LIST_CUSTOMER_INVOICES,
+    TOOL_PREPARE_INVOICE,
+    TOOL_GENERATE_INVOICE_PDF,
+    TOOL_ADD_LEAD_NOTE,
 ]
 
 

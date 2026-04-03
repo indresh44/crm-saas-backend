@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -38,12 +38,15 @@ class ToolExecutor:
         "list_customer_payments",
         "get_lead_followups",
         "get_catalog_items",
+        "generate_invoice_pdf",
     }
 
     WRITE_TOOLS = {
         "create_lead",
         "update_lead_stage",
         "schedule_followup",
+        "prepare_invoice",
+        "add_lead_note",
     }
 
     def __init__(self, session: Session, current_user: User) -> None:
@@ -424,6 +427,112 @@ class ToolExecutor:
             },
         }
 
+    async def _prepare_invoice(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        customer_id = args.get("customer_id")
+        customer_name = str(args.get("customer_name") or "").strip()
+        lead_id = args.get("lead_id")
+        due_date = str(args.get("due_date") or "").strip()
+        notes = args.get("notes")
+        raw_items = args.get("items") or []
+
+        items: list[dict[str, Any]] = []
+        subtotal = Decimal("0.00")
+        tax_total = Decimal("0.00")
+
+        for index, item in enumerate(raw_items):
+            quantity = Decimal(str(item.get("quantity", 1) or 1))
+            rate = Decimal(str(item.get("rate", 0) or 0))
+            gst_percent = Decimal(str(item.get("gst_percent", 18) or 18))
+            description = str(item.get("description") or item.get("name") or "").strip()
+
+            line_subtotal = quantity * rate
+            line_tax = (line_subtotal * gst_percent) / Decimal("100")
+            line_total = line_subtotal + line_tax
+
+            subtotal += line_subtotal
+            tax_total += line_tax
+
+            items.append(
+                {
+                    "catalog_item_id": item.get("catalog_item_id"),
+                    "name": str(item.get("name") or "").strip(),
+                    "description": description,
+                    "unit": str(item.get("unit") or "piece"),
+                    "quantity": float(quantity),
+                    "rate": float(rate),
+                    "gst_percent": float(gst_percent),
+                    "line_total": float(line_total.quantize(Decimal("0.01"))),
+                    "sort_order": index + 1,
+                }
+            )
+
+        if not due_date:
+            due_date = (date.today() + timedelta(days=15)).isoformat()
+
+        issued_date = date.today().isoformat()
+        payload = {
+            "customer_id": str(customer_id) if customer_id else None,
+            "customer_name": customer_name,
+            "lead_id": str(lead_id) if lead_id else None,
+            "issued_date": issued_date,
+            "due_date": due_date,
+            "items": items,
+            "notes": notes,
+            "subtotal": float(subtotal.quantize(Decimal("0.01"))),
+            "tax_total": float(tax_total.quantize(Decimal("0.01"))),
+            "total_amount": float((subtotal + tax_total).quantize(Decimal("0.01"))),
+        }
+        return {
+            "data": {"message": "Invoice prepared for review"},
+            "action": {
+                "type": "confirm_create_invoice",
+                "form_name": "create_invoice",
+                "prefilled_data": payload,
+            },
+        }
+
+    async def _generate_invoice_pdf(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        invoice_id = self._require_uuid(args, "invoice_id")
+        pdf_url = invoice_service.get_or_generate_pdf(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+        invoice = invoice_service.get_invoice(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+        return {
+            "data": {
+                "pdf_url": pdf_url,
+                "invoice_id": str(invoice_id),
+                "invoice_number": invoice.invoice_number,
+                "message": f"PDF generated for {invoice.invoice_number}",
+            }
+        }
+
+    async def _add_lead_note(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        lead_id = self._require_uuid(args, "lead_id")
+        note = self._require_str(args, "note")
+        lead = lead_service.get_lead(self.session, self.current_user, lead_id)
+        payload = {
+            "lead_id": str(lead_id),
+            "lead_title": lead.title,
+            "note": note,
+        }
+        return {
+            "data": {"message": "Note prepared for review"},
+            "action": {
+                "type": "confirm_add_lead_note",
+                "form_name": "add_lead_note",
+                "prefilled_data": payload,
+            },
+        }
+
     def _apply_context_fallbacks(
         self,
         tool_name: str,
@@ -440,16 +549,35 @@ class ToolExecutor:
             "list_customer_invoices",
             "list_customer_payments",
             "create_lead",
+            "prepare_invoice",
         }:
             args.setdefault("customer_id", str(context_id))
+            if tool_name == "prepare_invoice" and "customer_name" not in args:
+                try:
+                    customer = customer_service.get_customer(self.session, self.current_user, context_id)
+                    args.setdefault("customer_name", customer.name)
+                except HTTPException:
+                    pass
 
         if context_type == "lead" and tool_name in {
             "get_lead_details",
             "get_lead_followups",
             "update_lead_stage",
             "schedule_followup",
+            "prepare_invoice",
+            "add_lead_note",
         }:
             args.setdefault("lead_id", str(context_id))
+
+        if context_type == "lead" and tool_name == "prepare_invoice" and "customer_id" not in args:
+            lead = lead_service.get_lead(self.session, self.current_user, context_id)
+            if lead.customer_id is not None:
+                args.setdefault("customer_id", str(lead.customer_id))
+                try:
+                    customer = customer_service.get_customer(self.session, self.current_user, lead.customer_id)
+                    args.setdefault("customer_name", customer.name)
+                except HTTPException:
+                    pass
 
         return args
 
