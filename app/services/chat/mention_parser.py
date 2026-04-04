@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlmodel import Session
 
 from app.models.user import User
-from app.services import catalog_item_service, customer_service
+from app.services import catalog_item_service, customer_service, invoice_service
 
 
 @dataclass
@@ -96,6 +96,28 @@ def resolve_mentions(
                         },
                     )
                 )
+            elif mention_type == "invoice":
+                invoice = invoice_service.get_invoice(
+                    session=session,
+                    current_user=current_user,
+                    invoice_id=entity_id,
+                )
+                resolved.append(
+                    ResolvedMention(
+                        type="invoice",
+                        id=invoice.id,
+                        display_name=display_name,
+                        data={
+                            "invoice_id": str(invoice.id),
+                            "invoice_number": invoice.invoice_number,
+                            "total_amount": float(invoice.total_amount),
+                            "status": invoice.status.value,
+                            "customer_name": getattr(invoice, "customer_name", None),
+                            "lead_id": str(invoice.lead_id) if invoice.lead_id else None,
+                            "pdf_url": getattr(invoice, "pdf_url", None),
+                        },
+                    )
+                )
         except HTTPException:
             continue
 
@@ -129,5 +151,23 @@ def _build_mention_context(mentions: list[ResolvedMention]) -> str:
                 f"Unit: {mention.data['unit']}, "
                 f"GST: {mention.data['gst_percent']}%, "
                 f"Description: {description})"
+            )
+        elif mention.type == "invoice":
+            customer_text = (
+                f", Customer: {mention.data['customer_name']}"
+                if mention.data.get("customer_name")
+                else ""
+            )
+            pdf_text = (
+                f", PDF: {mention.data['pdf_url']}"
+                if mention.data.get("pdf_url")
+                else ""
+            )
+            lines.append(
+                f"- Invoice: {mention.data['invoice_number']} "
+                f"(ID: {mention.data['invoice_id']}, "
+                f"Amount: Rs. {mention.data['total_amount']:,.0f}, "
+                f"Status: {mention.data['status']}"
+                f"{customer_text}{pdf_text})"
             )
     return "\n".join(lines)

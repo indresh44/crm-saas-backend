@@ -3,15 +3,17 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Any
+from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from app.models.enums import InvoiceStatus, UserRole
+from app.models.enums import InvoiceStatus, PaymentMethod, UserRole
 from app.models.lead import LeadCreate
 from app.models.lead_followup import LeadFollowupCreate
+from app.models.payment import PaymentCreate
 from app.models.user import User
 from app.services import catalog_item_service, customer_service, dashboard_service, invoice_service
 from app.services import lead_followup_service, lead_service, payment_service, pipeline_service
@@ -39,6 +41,14 @@ class ToolExecutor:
         "get_lead_followups",
         "get_catalog_items",
         "generate_invoice_pdf",
+        "get_invoice_details",
+        "list_customers_by_outstanding",
+        "list_leads_by_stage",
+        "get_pipeline_summary",
+        "list_overdue_invoices",
+        "get_unpaid_invoice_summary",
+        "get_recent_payments",
+        "get_revenue_summary",
     }
 
     WRITE_TOOLS = {
@@ -47,6 +57,8 @@ class ToolExecutor:
         "schedule_followup",
         "prepare_invoice",
         "add_lead_note",
+        "record_payment",
+        "send_payment_reminder",
     }
 
     def __init__(self, session: Session, current_user: User) -> None:
@@ -514,6 +526,403 @@ class ToolExecutor:
             }
         }
 
+    async def _get_invoice_details(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        invoice_id = self._require_uuid(args, "invoice_id")
+        invoice = invoice_service.get_invoice(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+        items = invoice_service.list_invoice_items(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+        payments = payment_service.list_payments(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+
+        customer_name, lead_title = self._get_invoice_display_context(invoice.lead_id)
+        amount_paid = sum((payment.amount for payment in payments), Decimal("0"))
+        balance_due = max(invoice.total_amount - amount_paid, Decimal("0"))
+        item_lines = [
+            (
+                f"- {(item.name or item.description)}: "
+                f"{float(item.quantity):g} x Rs {float(item.unit_price):,.0f}/{item.unit} "
+                f"(GST {float(item.gst_percent):g}%) = Rs {float(item.amount):,.0f}"
+            )
+            for item in items
+        ]
+
+        return {
+            "data": {
+                "invoice_id": str(invoice.id),
+                "invoice_number": invoice.invoice_number,
+                "status": invoice.status.value,
+                "issued_date": invoice.issued_date.isoformat(),
+                "due_date": invoice.due_date.isoformat(),
+                "customer_name": customer_name,
+                "lead_title": lead_title,
+                "subtotal": self._decimal_to_float(invoice.subtotal) or 0,
+                "tax_total": self._decimal_to_float(invoice.tax_total) or 0,
+                "total_amount": self._decimal_to_float(invoice.total_amount) or 0,
+                "amount_paid": self._decimal_to_float(amount_paid) or 0,
+                "balance_due": self._decimal_to_float(balance_due) or 0,
+                "items": "\n".join(item_lines) if item_lines else "No items",
+                "items_count": len(item_lines),
+                "pdf_url": invoice.pdf_url,
+            }
+        }
+
+    async def _record_payment(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        invoice_id = self._require_uuid(args, "invoice_id")
+        amount = float(args.get("amount", 0) or 0)
+        invoice = invoice_service.get_invoice(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+        customer_name, _ = self._get_invoice_display_context(invoice.lead_id)
+        payments = payment_service.list_payments(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+        amount_paid = sum((payment.amount for payment in payments), Decimal("0"))
+        balance_due = max(invoice.total_amount - amount_paid, Decimal("0"))
+
+        if amount <= 0:
+            raise ValueError("Payment amount must be positive")
+
+        payment_date = str(args.get("payment_date") or "").strip() or date.today().isoformat()
+        payload = {
+            "invoice_id": str(invoice.id),
+            "invoice_number": str(args.get("invoice_number") or invoice.invoice_number),
+            "customer_name": customer_name,
+            "amount": amount,
+            "payment_method": str(args.get("payment_method") or "upi"),
+            "reference": str(args.get("reference") or ""),
+            "payment_date": payment_date,
+            "notes": str(args.get("notes") or ""),
+            "total_amount": self._decimal_to_float(invoice.total_amount) or 0,
+            "amount_already_paid": self._decimal_to_float(amount_paid) or 0,
+            "balance_due": self._decimal_to_float(balance_due) or 0,
+        }
+        return {
+            "data": {"message": "Payment prepared for review"},
+            "action": {
+                "type": "confirm_record_payment",
+                "form_name": "record_payment",
+                "prefilled_data": payload,
+            },
+        }
+
+    async def _list_customers_by_outstanding(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        limit = max(1, int(args.get("limit", 10) or 10))
+        customers = customer_service.list_customers(
+            session=self.session,
+            current_user=self.current_user,
+        )
+
+        customer_data: list[dict[str, Any]] = []
+        for customer in customers:
+            summary = customer_service.get_customer_outstanding(
+                session=self.session,
+                business_id=self.current_user.business_id,
+                customer_id=customer.id,
+            )
+            outstanding = float(summary.get("outstanding", 0) or 0)
+            if outstanding > 0:
+                customer_data.append(
+                    {
+                        "customer_id": str(customer.id),
+                        "name": customer.name,
+                        "phone": customer.phone,
+                        "outstanding": outstanding,
+                    }
+                )
+
+        customer_data.sort(key=lambda item: item["outstanding"], reverse=True)
+        top_customers = customer_data[:limit]
+        lines = [
+            f"{index}. {customer['name']} ({customer['phone']}) - Rs {customer['outstanding']:,.0f}"
+            for index, customer in enumerate(top_customers, 1)
+        ]
+        return {
+            "data": {
+                "customers": "\n".join(lines) if lines else "No customers with outstanding balance",
+                "count": len(top_customers),
+                "total_outstanding": sum(customer["outstanding"] for customer in top_customers),
+            }
+        }
+
+    async def _list_leads_by_stage(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        stage_name = self._require_str(args, "stage_name")
+        limit = max(1, int(args.get("limit", 20) or 20))
+        stages = pipeline_service.get_stages_for_business(
+            session=self.session,
+            current_user=self.current_user,
+        )
+        stage = next((item for item in stages if item.name.lower() == stage_name.lower()), None)
+        if stage is None:
+            available = ", ".join(item.name for item in stages)
+            return {"data": {"error": f"Stage '{stage_name}' not found. Available: {available}"}}
+
+        leads = [
+            lead
+            for lead in lead_service.list_leads(self.session, self.current_user)
+            if lead.stage_name and lead.stage_name.lower() == stage.name.lower()
+        ][:limit]
+        total_value = 0.0
+        lines: list[str] = []
+        for lead in leads:
+            value = float(lead.estimated_value or 0)
+            total_value += value
+            lines.append(
+                f"- {lead.title} ({lead.customer_name or 'Unknown'}) - ₹{value:,.0f} · "
+                f"{lead.created_at.date().isoformat() if lead.created_at else ''}"
+            )
+        return {
+            "data": {
+                "stage": stage.name,
+                "count": len(leads),
+                "total_value": total_value,
+                "leads": "\n".join(lines) if lines else "No leads in this stage",
+            }
+        }
+
+    async def _get_pipeline_summary(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id, args
+        stages = pipeline_service.get_stages_for_business(
+            session=self.session,
+            current_user=self.current_user,
+        )
+        leads = lead_service.list_leads(self.session, self.current_user)
+        lines: list[str] = []
+        total_leads = 0
+        total_value = 0.0
+        for stage in stages:
+            stage_leads = [lead for lead in leads if lead.stage_name and lead.stage_name.lower() == stage.name.lower()]
+            count = len(stage_leads)
+            value = sum(float(lead.estimated_value or 0) for lead in stage_leads)
+            total_leads += count
+            total_value += value
+            lines.append(f"- {stage.name}: {count} leads - ₹{value:,.0f}")
+        return {
+            "data": {
+                "pipeline": "\n".join(lines) if lines else "No pipeline stages found",
+                "total_leads": total_leads,
+                "total_pipeline_value": total_value,
+            }
+        }
+
+    async def _list_overdue_invoices(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        limit = max(1, int(args.get("limit", 20) or 20))
+        today = date.today()
+        invoices, _, _ = invoice_service.list_invoices(
+            session=self.session,
+            current_user=self.current_user,
+            limit=200,
+            offset=0,
+        )
+        overdue_lines: list[str] = []
+        total_overdue = 0.0
+        for invoice in invoices:
+            amount_paid = float(invoice.amount_paid or 0)
+            balance = float(invoice.total_amount or 0) - amount_paid
+            if balance <= 0 or invoice.status in {InvoiceStatus.PAID, InvoiceStatus.DRAFT} or invoice.due_date >= today:
+                continue
+            days_overdue = (today - invoice.due_date).days
+            total_overdue += balance
+            overdue_lines.append(
+                f"- {invoice.invoice_number} · {invoice.customer_name or 'Unknown'} · ₹{balance:,.0f} "
+                f"· {days_overdue} days overdue (due: {invoice.due_date.isoformat()})"
+            )
+            if len(overdue_lines) >= limit:
+                break
+        return {
+            "data": {
+                "invoices": "\n".join(overdue_lines) if overdue_lines else "No overdue invoices!",
+                "count": len(overdue_lines),
+                "total_overdue_amount": total_overdue,
+            }
+        }
+
+    async def _get_unpaid_invoice_summary(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id, args
+        today = date.today()
+        invoices, _, _ = invoice_service.list_invoices(
+            session=self.session,
+            current_user=self.current_user,
+            limit=500,
+            offset=0,
+        )
+        total_invoiced = 0.0
+        total_paid = 0.0
+        total_outstanding = 0.0
+        overdue_count = 0
+        unpaid_count = 0
+        for invoice in invoices:
+            if invoice.status == InvoiceStatus.DRAFT:
+                continue
+            amount = float(invoice.total_amount or 0)
+            paid = float(invoice.amount_paid or 0)
+            balance = amount - paid
+            total_invoiced += amount
+            total_paid += paid
+            if balance > 0:
+                unpaid_count += 1
+                total_outstanding += balance
+                if invoice.due_date < today:
+                    overdue_count += 1
+        return {
+            "data": {
+                "total_invoiced": total_invoiced,
+                "total_collected": total_paid,
+                "total_outstanding": total_outstanding,
+                "unpaid_invoice_count": unpaid_count,
+                "overdue_count": overdue_count,
+                "collection_rate": round((total_paid / total_invoiced * 100), 1) if total_invoiced > 0 else 0,
+            }
+        }
+
+    async def _get_recent_payments(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        days = max(1, int(args.get("days", 7) or 7))
+        limit = max(1, int(args.get("limit", 20) or 20))
+        since = date.today() - timedelta(days=days)
+        payments = [
+            payment
+            for payment in payment_service.list_payments(self.session, self.current_user)
+            if payment.payment_date >= since
+        ][:limit]
+        total = 0.0
+        lines: list[str] = []
+        for payment in payments:
+            amount = float(payment.amount)
+            total += amount
+            try:
+                invoice = invoice_service.get_invoice(self.session, self.current_user, payment.invoice_id)
+                customer_name, _ = self._get_invoice_display_context(invoice.lead_id)
+                invoice_number = invoice.invoice_number
+            except HTTPException:
+                customer_name = ""
+                invoice_number = ""
+            lines.append(
+                f"- ₹{amount:,.0f} · {payment.payment_method.value} · {customer_name or 'Unknown'} "
+                f"· {invoice_number} · {payment.payment_date.isoformat()}"
+            )
+        period_label = "today" if days == 1 else f"last {days} days"
+        return {
+            "data": {
+                "payments": "\n".join(lines) if lines else f"No payments in {period_label}",
+                "count": len(lines),
+                "total_received": total,
+                "period": period_label,
+            }
+        }
+
+    async def _get_revenue_summary(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        period = str(args.get("period") or "this_month")
+        today = date.today()
+        if period == "today":
+            start_date = end_date = today
+            label = "Today"
+        elif period == "this_week":
+            start_date = today - timedelta(days=today.weekday())
+            end_date = today
+            label = "This week"
+        elif period == "last_month":
+            first_of_this_month = today.replace(day=1)
+            end_date = first_of_this_month - timedelta(days=1)
+            start_date = end_date.replace(day=1)
+            label = f"Last month ({start_date.strftime('%B')})"
+        elif period == "last_30_days":
+            start_date = today - timedelta(days=30)
+            end_date = today
+            label = "Last 30 days"
+        elif period == "last_90_days":
+            start_date = today - timedelta(days=90)
+            end_date = today
+            label = "Last 90 days"
+        else:
+            start_date = today.replace(day=1)
+            end_date = today
+            label = "This month"
+
+        payments = [
+            payment
+            for payment in payment_service.list_payments(self.session, self.current_user)
+            if start_date <= payment.payment_date <= end_date
+        ]
+        total_revenue = sum(float(payment.amount) for payment in payments)
+        return {
+            "data": {
+                "period": label,
+                "total_revenue": total_revenue,
+                "payment_count": len(payments),
+                "start_date": start_date.isoformat(),
+                "end_date": end_date.isoformat(),
+            }
+        }
+
+    async def _send_payment_reminder(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        customer_name = str(args.get("customer_name") or "")
+        customer_phone = str(args.get("customer_phone") or "")
+        outstanding = float(args.get("outstanding_amount", 0) or 0)
+        invoice_numbers = str(args.get("invoice_numbers") or "")
+        tone = str(args.get("message_tone") or "polite")
+        if tone == "firm":
+            message = (
+                f"Namaste {customer_name} ji,\n\n"
+                f"Aapke account mein ₹{outstanding:,.0f} ka outstanding amount hai"
+                f"{' (Invoice: ' + invoice_numbers + ')' if invoice_numbers else ''}.\n\n"
+                f"Kripya jaldi se jaldi payment karein. Agar koi issue hai toh humse baat karein.\n\n"
+                f"Dhanyavaad."
+            )
+        elif tone == "urgent":
+            message = (
+                f"{customer_name} ji,\n\n"
+                f"Aapka ₹{outstanding:,.0f} ka payment kaafi din se pending hai"
+                f"{' (' + invoice_numbers + ')' if invoice_numbers else ''}.\n\n"
+                f"Kripya aaj hi payment karein. Yeh final reminder hai.\n\n"
+                f"Dhanyavaad."
+            )
+        else:
+            message = (
+                f"Namaste {customer_name} ji,\n\n"
+                f"Yeh ek friendly reminder hai ki aapka ₹{outstanding:,.0f} ka payment pending hai"
+                f"{' (' + invoice_numbers + ')' if invoice_numbers else ''}.\n\n"
+                f"Agar payment ho chuki hai toh please ignore karein.\n\n"
+                f"Dhanyavaad!"
+            )
+        payload = {
+            "customer_name": customer_name,
+            "customer_phone": customer_phone,
+            "outstanding_amount": outstanding,
+            "invoice_numbers": invoice_numbers,
+            "message": message,
+            "tone": tone,
+            "whatsapp_url": f"https://wa.me/91{customer_phone}?text={quote(message)}",
+        }
+        return {
+            "data": {"message": "Payment reminder prepared"},
+            "action": {
+                "type": "confirm_send_payment_reminder",
+                "form_name": "send_payment_reminder",
+                "prefilled_data": payload,
+            },
+        }
+
     async def _add_lead_note(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
         del business_id
         lead_id = self._require_uuid(args, "lead_id")
@@ -603,6 +1012,33 @@ class ToolExecutor:
         if value is None:
             return None
         return InvoiceStatus(str(value))
+
+    def _get_invoice_display_context(self, lead_id: UUID | None) -> tuple[str | None, str | None]:
+        if lead_id is None:
+            return None, None
+
+        try:
+            lead = lead_service.get_lead(self.session, self.current_user, lead_id)
+        except HTTPException:
+            return None, None
+
+        customer_name = None
+        if lead.customer_id is not None:
+            try:
+                customer = customer_service.get_customer(
+                    self.session,
+                    self.current_user,
+                    lead.customer_id,
+                )
+                customer_name = customer.name
+            except HTTPException:
+                customer_name = None
+        return customer_name, lead.title
+
+    def _optional_payment_method(self, value: Any) -> PaymentMethod:
+        if value is None or value == "":
+            return PaymentMethod.UPI
+        return PaymentMethod(str(value))
 
     def _decimal_to_float(self, value: Decimal | None) -> float | None:
         if value is None:

@@ -71,6 +71,10 @@ class SuggestionEngine:
             "prepare_invoice": ["Review invoice", "Confirm invoice"],
             "generate_invoice_pdf": ["Share on WhatsApp", "Create another invoice"],
             "add_lead_note": ["Review note", "Confirm note"],
+            "get_invoice_details": ["Record payment", "Generate PDF", "Share on WhatsApp"],
+            "record_payment": ["Review payment", "Confirm payment"],
+            "confirm_record_payment": ["Generate PDF", "Check remaining balance"],
+            "list_customers_by_outstanding": ["Show details for top customer", "Send payment reminders"],
         }
 
         suggestions = list(mapping.get(last_action, []))

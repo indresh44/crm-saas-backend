@@ -95,13 +95,15 @@ async def send_chat_message(
             detail="Too many requests, please wait a moment",
         ) from exc
     except LLMError as exc:
+        print("CHAT LLM ERROR:", repr(exc))
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="AI assistant encountered an error",
+            detail=f"AI assistant encountered an error: abc {str(exc)}",
         ) from exc
     except HTTPException:
         raise
     except Exception as exc:
+        print("CHAT UNKNOWN ERROR:", repr(exc))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",

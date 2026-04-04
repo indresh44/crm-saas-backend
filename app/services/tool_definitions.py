@@ -366,6 +366,249 @@ TOOL_GENERATE_INVOICE_PDF = {
     },
 }
 
+TOOL_GET_INVOICE_DETAILS = {
+    "type": "function",
+    "function": {
+        "name": "get_invoice_details",
+        "description": (
+            "Get full details of a specific invoice including line items, payment status, "
+            "and amounts. Use when the user asks about a specific invoice, wants to see invoice "
+            "details, check payment status of an invoice, or references an invoice by number or ID."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "invoice_id": {
+                    "type": "string",
+                    "description": "UUID of the invoice. Get from @mention context or conversation history.",
+                }
+            },
+            "required": ["invoice_id"],
+        },
+    },
+}
+
+TOOL_RECORD_PAYMENT = {
+    "type": "function",
+    "function": {
+        "name": "record_payment",
+        "description": (
+            "Record a payment received against an invoice. Use when the user says payment received, "
+            "record payment, full payment, or mentions receiving money for an invoice. "
+            "Requires invoice_id and amount."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "invoice_id": {
+                    "type": "string",
+                    "description": "UUID of the invoice this payment is against. From @mention or context.",
+                },
+                "invoice_number": {
+                    "type": "string",
+                    "description": "Invoice number for display such as INV-007.",
+                },
+                "amount": {
+                    "type": "number",
+                    "description": "Payment amount in INR. For full payment, use the invoice balance due amount.",
+                },
+                "payment_method": {
+                    "type": "string",
+                    "description": "How the payment was made.",
+                    "enum": ["upi", "cash", "bank_transfer", "card"],
+                },
+                "reference": {
+                    "type": "string",
+                    "description": "Transaction reference ID, UPI reference, cheque number, etc.",
+                },
+                "payment_date": {
+                    "type": "string",
+                    "description": "Date payment was received in YYYY-MM-DD format. Default to today if omitted.",
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Optional notes about the payment for confirmation context.",
+                },
+            },
+            "required": ["invoice_id", "amount"],
+        },
+    },
+}
+
+TOOL_LIST_CUSTOMERS_BY_OUTSTANDING = {
+    "type": "function",
+    "function": {
+        "name": "list_customers_by_outstanding",
+        "description": (
+            "Get a list of customers sorted by outstanding amount highest first. "
+            "Use when the user asks who owes the most money, top outstanding customers, "
+            "pending payments list, or collection list."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Number of customers to return. Default 10.",
+                }
+            },
+            "required": [],
+        },
+    },
+}
+
+TOOL_LIST_LEADS_BY_STAGE = {
+    "type": "function",
+    "function": {
+        "name": "list_leads_by_stage",
+        "description": (
+            "List leads filtered by pipeline stage and return the count. "
+            "Use when the user asks for leads in a specific stage or how many leads are in a stage."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "stage_name": {
+                    "type": "string",
+                    "description": "Name of the pipeline stage to filter by.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max leads to return. Default 20.",
+                },
+            },
+            "required": ["stage_name"],
+        },
+    },
+}
+
+TOOL_GET_PIPELINE_SUMMARY = {
+    "type": "function",
+    "function": {
+        "name": "get_pipeline_summary",
+        "description": (
+            "Get a summary of leads across all pipeline stages with count and total value per stage. "
+            "Use when the user asks for a pipeline overview, funnel, or stage-wise count."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+}
+
+TOOL_LIST_OVERDUE_INVOICES = {
+    "type": "function",
+    "function": {
+        "name": "list_overdue_invoices",
+        "description": (
+            "List invoices that are past their due date and not fully paid. "
+            "Use when the user asks about overdue invoices, late payments, or pending collections."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results. Default 20.",
+                }
+            },
+            "required": [],
+        },
+    },
+}
+
+TOOL_GET_UNPAID_INVOICE_SUMMARY = {
+    "type": "function",
+    "function": {
+        "name": "get_unpaid_invoice_summary",
+        "description": (
+            "Get aggregate summary of all unpaid invoices including total count, total collected, "
+            "total outstanding, and overdue count. Use for a collections overview."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+}
+
+TOOL_GET_RECENT_PAYMENTS = {
+    "type": "function",
+    "function": {
+        "name": "get_recent_payments",
+        "description": (
+            "Get recent payments received. Use when the user asks about today's payments, "
+            "recent payments, or payments received over the last few days."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "days": {
+                    "type": "integer",
+                    "description": "Look back this many days. Default 7.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results. Default 20.",
+                },
+            },
+            "required": [],
+        },
+    },
+}
+
+TOOL_GET_REVENUE_SUMMARY = {
+    "type": "function",
+    "function": {
+        "name": "get_revenue_summary",
+        "description": (
+            "Get revenue collected for a given time period. Use when the user asks about "
+            "today's revenue, this week's revenue, this month, last month, or recent collections."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "period": {
+                    "type": "string",
+                    "description": "Time period to summarize.",
+                    "enum": ["today", "this_week", "this_month", "last_month", "last_30_days", "last_90_days"],
+                }
+            },
+            "required": ["period"],
+        },
+    },
+}
+
+TOOL_SEND_PAYMENT_REMINDER = {
+    "type": "function",
+    "function": {
+        "name": "send_payment_reminder",
+        "description": (
+            "Prepare a payment reminder message to send to a customer via WhatsApp. "
+            "Use when the user wants to remind a customer about pending payment."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "customer_id": {"type": "string", "description": "UUID of the customer to remind."},
+                "customer_name": {"type": "string", "description": "Customer name for display."},
+                "customer_phone": {"type": "string", "description": "Customer phone number."},
+                "outstanding_amount": {"type": "number", "description": "Total outstanding amount."},
+                "invoice_numbers": {"type": "string", "description": "Comma-separated unpaid invoice numbers."},
+                "message_tone": {
+                    "type": "string",
+                    "description": "Tone of the reminder.",
+                    "enum": ["polite", "firm", "urgent"],
+                },
+            },
+            "required": ["customer_name", "customer_phone", "outstanding_amount"],
+        },
+    },
+}
+
 TOOL_ADD_LEAD_NOTE = {
     "type": "function",
     "function": {
@@ -401,8 +644,18 @@ DASHBOARD_TOOLS = [
     TOOL_CREATE_LEAD,
     TOOL_GET_CATALOG_ITEMS,
     TOOL_LIST_CUSTOMER_INVOICES,
+    TOOL_LIST_LEADS_BY_STAGE,
+    TOOL_GET_PIPELINE_SUMMARY,
+    TOOL_GET_INVOICE_DETAILS,
+    TOOL_LIST_CUSTOMERS_BY_OUTSTANDING,
+    TOOL_LIST_OVERDUE_INVOICES,
+    TOOL_GET_UNPAID_INVOICE_SUMMARY,
+    TOOL_GET_RECENT_PAYMENTS,
+    TOOL_GET_REVENUE_SUMMARY,
     TOOL_PREPARE_INVOICE,
     TOOL_GENERATE_INVOICE_PDF,
+    TOOL_SEND_PAYMENT_REMINDER,
+    TOOL_SCHEDULE_FOLLOWUP
 ]
 
 CUSTOMER_TOOLS = [
@@ -412,8 +665,15 @@ CUSTOMER_TOOLS = [
     TOOL_SEARCH_LEAD,
     TOOL_CREATE_LEAD,
     TOOL_GET_CATALOG_ITEMS,
+    TOOL_GET_INVOICE_DETAILS,
+    TOOL_RECORD_PAYMENT,
+    TOOL_LIST_CUSTOMERS_BY_OUTSTANDING,
+    TOOL_LIST_OVERDUE_INVOICES,
+    TOOL_GET_RECENT_PAYMENTS,
+    TOOL_SEND_PAYMENT_REMINDER,
     TOOL_PREPARE_INVOICE,
     TOOL_GENERATE_INVOICE_PDF,
+    TOOL_SCHEDULE_FOLLOWUP
 ]
 
 LEAD_TOOLS = [
@@ -424,6 +684,9 @@ LEAD_TOOLS = [
     TOOL_GET_CUSTOMER_OUTSTANDING,
     TOOL_GET_CATALOG_ITEMS,
     TOOL_LIST_CUSTOMER_INVOICES,
+    TOOL_LIST_LEADS_BY_STAGE,
+    TOOL_GET_INVOICE_DETAILS,
+    TOOL_RECORD_PAYMENT,
     TOOL_PREPARE_INVOICE,
     TOOL_GENERATE_INVOICE_PDF,
     TOOL_ADD_LEAD_NOTE,
@@ -438,6 +701,16 @@ GLOBAL_TOOLS = [
     TOOL_CREATE_LEAD,
     TOOL_GET_CATALOG_ITEMS,
     TOOL_LIST_CUSTOMER_INVOICES,
+    TOOL_LIST_LEADS_BY_STAGE,
+    TOOL_GET_PIPELINE_SUMMARY,
+    TOOL_GET_INVOICE_DETAILS,
+    TOOL_RECORD_PAYMENT,
+    TOOL_LIST_CUSTOMERS_BY_OUTSTANDING,
+    TOOL_LIST_OVERDUE_INVOICES,
+    TOOL_GET_UNPAID_INVOICE_SUMMARY,
+    TOOL_GET_RECENT_PAYMENTS,
+    TOOL_GET_REVENUE_SUMMARY,
+    TOOL_SEND_PAYMENT_REMINDER,
     TOOL_PREPARE_INVOICE,
     TOOL_GENERATE_INVOICE_PDF,
     TOOL_ADD_LEAD_NOTE,

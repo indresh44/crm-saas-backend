@@ -20,7 +20,7 @@ from app.models.lead_followup import LeadFollowupCreate
 from app.models.user import User
 from app.repositories import chat_message_repo, chat_thread_repo
 from app.services import customer_service, lead_followup_service, lead_service, pipeline_service
-from app.services import invoice_service, lead_activity_service
+from app.services import invoice_service, lead_activity_service, payment_service
 from app.services.chat.mention_parser import resolve_mentions
 from app.services.context_assembler import ContextAssembler
 from app.services.llm_service import LLMResponse, LLMService
@@ -118,6 +118,11 @@ class ChatOrchestrator:
                     "tool_output": result.model_dump(),
                 }
             )
+            if not result.success:
+                return {
+                    "error": True,
+                    "message": result.error or "Tool execution failed",
+                }
             if result.is_write and result.action:
                 pending_action = result.action
             return result.data
@@ -232,6 +237,18 @@ class ChatOrchestrator:
         elif action_type == "confirm_add_lead_note":
             result = self._confirm_add_lead_note(confirmed_data)
             reply = "✓ Note added to lead."
+        elif action_type == "confirm_record_payment":
+            result = self._confirm_record_payment(confirmed_data)
+            reply = (
+                f"✓ Payment of ₹{result['amount']:,.0f} recorded for {result['invoice_number']}. "
+                f"Balance due: ₹{result['balance_remaining']:,.0f}"
+            )
+        elif action_type == "confirm_send_payment_reminder":
+            result = confirmed_data
+            reply = (
+                f"✓ Payment reminder ready for {confirmed_data.get('customer_name', '')}. "
+                f"Click the WhatsApp button below to send it."
+            )
         else:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -473,6 +490,50 @@ class ChatOrchestrator:
         return {
             "lead_id": str(lead_id),
             "note": note,
+        }
+
+    def _confirm_record_payment(self, confirmed_data: dict[str, Any]) -> dict[str, Any]:
+        from app.models.payment import PaymentCreate
+
+        invoice_id = UUID(str(confirmed_data["invoice_id"]))
+        amount = self._to_decimal(confirmed_data.get("amount"))
+        if amount is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Payment amount is required",
+            )
+
+        payment = payment_service.create_payment(
+            session=self.session,
+            current_user=self.current_user,
+            data=PaymentCreate(
+                invoice_id=invoice_id,
+                amount=amount,
+                payment_method=str(confirmed_data.get("payment_method") or "upi"),
+                payment_date=datetime.fromisoformat(str(confirmed_data["payment_date"])).date(),
+                reference=str(confirmed_data.get("reference") or "") or None,
+            ),
+        )
+
+        invoice = invoice_service.get_invoice(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+        payments = payment_service.list_payments(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+        total_paid = sum((payment_item.amount for payment_item in payments), Decimal("0"))
+        balance_remaining = max(invoice.total_amount - total_paid, Decimal("0"))
+
+        return {
+            "invoice_id": str(invoice_id),
+            "invoice_number": str(confirmed_data.get("invoice_number") or invoice.invoice_number),
+            "amount": float(amount),
+            "balance_remaining": float(balance_remaining),
+            "payment_id": str(payment.id),
         }
 
     def _tool_name_for_storage(self, tool_traces: list[dict[str, Any]]) -> str | None:
