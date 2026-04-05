@@ -275,6 +275,148 @@ TOOL_SCHEDULE_FOLLOWUP = {
     },
 }
 
+TOOL_COMPLETE_FOLLOWUP = {
+    "type": "function",
+    "function": {
+        "name": "complete_followup",
+        "description": (
+            "Mark a follow-up as completed with an optional outcome note. "
+            "Use when user says 'call ho gaya', 'done', 'mark complete', 'follow-up ho gaya', "
+            "'Rajesh se baat hui'. The followup_id can come from context or from previous tool results."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "followup_id": {
+                    "type": "string",
+                    "description": "UUID of the follow-up to mark complete.",
+                },
+                "outcome_note": {
+                    "type": "string",
+                    "description": (
+                        "What happened during the follow-up. E.g. 'Discussed pricing, will send quote tomorrow'."
+                    ),
+                },
+            },
+            "required": ["followup_id"],
+        },
+    },
+}
+
+TOOL_RESCHEDULE_FOLLOWUP = {
+    "type": "function",
+    "function": {
+        "name": "reschedule_followup",
+        "description": (
+            "Reschedule an existing follow-up to a new date/time. "
+            "Use when user says 'kal pe shift karo', 'reschedule', 'postpone', "
+            "'move to tomorrow', 'next week pe daalo'. The followup_id comes from context or previous tool results."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "followup_id": {
+                    "type": "string",
+                    "description": "UUID of the follow-up to reschedule.",
+                },
+                "new_date": {
+                    "type": "string",
+                    "description": "New date in YYYY-MM-DD format.",
+                },
+                "new_time": {
+                    "type": "string",
+                    "description": "New time in HH:MM format (24hr). Optional; keeps existing time if omitted.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Optional reason for rescheduling.",
+                },
+            },
+            "required": ["followup_id", "new_date"],
+        },
+    },
+}
+
+TOOL_BULK_UPDATE_FOLLOWUPS = {
+    "type": "function",
+    "function": {
+        "name": "bulk_update_followups",
+        "description": (
+            "Update multiple follow-ups at once. Can mark them as completed/cancelled or reschedule them. "
+            "Use only after first showing the affected items with get_todays_followups, get_overdue_followups, "
+            "or get_stale_followups."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "What to do with the matched follow-ups.",
+                    "enum": ["complete", "cancel", "reschedule"],
+                },
+                "filter_type": {
+                    "type": "string",
+                    "description": "How to filter follow-ups to update.",
+                    "enum": ["today", "overdue", "date_range", "customer", "lead", "ids"],
+                },
+                "filter_value": {
+                    "type": "string",
+                    "description": (
+                        "Value for the filter. date_range uses 'YYYY-MM-DD,YYYY-MM-DD'. "
+                        "customer and lead expect UUIDs. ids uses comma-separated follow-up UUIDs."
+                    ),
+                },
+                "reschedule_to_date": {
+                    "type": "string",
+                    "description": "New date (YYYY-MM-DD) when action=reschedule.",
+                },
+                "reschedule_to_time": {
+                    "type": "string",
+                    "description": "New time (HH:MM) when action=reschedule.",
+                },
+                "note": {
+                    "type": "string",
+                    "description": "Note to apply to all matched follow-ups.",
+                },
+            },
+            "required": ["action", "filter_type"],
+        },
+    },
+}
+
+TOOL_GET_STALE_FOLLOWUPS = {
+    "type": "function",
+    "function": {
+        "name": "get_stale_followups",
+        "description": (
+            "Get old pending follow-ups that are likely stale and need cleanup. "
+            "Use before bulk_update_followups to show the user what will be affected."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "older_than_days": {
+                    "type": "integer",
+                    "description": "Show follow-ups older than this many days. Default 7.",
+                },
+                "customer_id": {
+                    "type": "string",
+                    "description": "Optional customer UUID filter.",
+                },
+                "lead_id": {
+                    "type": "string",
+                    "description": "Optional lead UUID filter.",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results. Default 30.",
+                },
+            },
+            "required": [],
+        },
+    },
+}
+
 TOOL_PREPARE_INVOICE = {
     "type": "function",
     "function": {
@@ -655,7 +797,11 @@ DASHBOARD_TOOLS = [
     TOOL_PREPARE_INVOICE,
     TOOL_GENERATE_INVOICE_PDF,
     TOOL_SEND_PAYMENT_REMINDER,
-    TOOL_SCHEDULE_FOLLOWUP
+    TOOL_SCHEDULE_FOLLOWUP,
+    TOOL_COMPLETE_FOLLOWUP,
+    TOOL_RESCHEDULE_FOLLOWUP,
+    TOOL_BULK_UPDATE_FOLLOWUPS,
+    TOOL_GET_STALE_FOLLOWUPS,
 ]
 
 CUSTOMER_TOOLS = [
@@ -673,7 +819,11 @@ CUSTOMER_TOOLS = [
     TOOL_SEND_PAYMENT_REMINDER,
     TOOL_PREPARE_INVOICE,
     TOOL_GENERATE_INVOICE_PDF,
-    TOOL_SCHEDULE_FOLLOWUP
+    TOOL_SCHEDULE_FOLLOWUP,
+    TOOL_COMPLETE_FOLLOWUP,
+    TOOL_RESCHEDULE_FOLLOWUP,
+    TOOL_BULK_UPDATE_FOLLOWUPS,
+    TOOL_GET_STALE_FOLLOWUPS,
 ]
 
 LEAD_TOOLS = [
@@ -681,6 +831,10 @@ LEAD_TOOLS = [
     TOOL_GET_LEAD_FOLLOWUPS,
     TOOL_UPDATE_LEAD_STAGE,
     TOOL_SCHEDULE_FOLLOWUP,
+    TOOL_COMPLETE_FOLLOWUP,
+    TOOL_RESCHEDULE_FOLLOWUP,
+    TOOL_BULK_UPDATE_FOLLOWUPS,
+    TOOL_GET_STALE_FOLLOWUPS,
     TOOL_GET_CUSTOMER_OUTSTANDING,
     TOOL_GET_CATALOG_ITEMS,
     TOOL_LIST_CUSTOMER_INVOICES,
@@ -714,6 +868,10 @@ GLOBAL_TOOLS = [
     TOOL_PREPARE_INVOICE,
     TOOL_GENERATE_INVOICE_PDF,
     TOOL_ADD_LEAD_NOTE,
+    TOOL_COMPLETE_FOLLOWUP,
+    TOOL_RESCHEDULE_FOLLOWUP,
+    TOOL_BULK_UPDATE_FOLLOWUPS,
+    TOOL_GET_STALE_FOLLOWUPS,
 ]
 
 

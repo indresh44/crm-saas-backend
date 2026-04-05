@@ -24,11 +24,22 @@ class LeadFollowupDone(SQLModel):
     note: Optional[str] = None
 
 
+class LeadFollowupUpdate(SQLModel):
+    scheduled_at: Optional[datetime] = None
+    note: Optional[str] = None
+    status: Optional[str] = None
+    completed_at: Optional[datetime] = None
+
+
 class LeadFollowupRead(LeadFollowupBase):
     id: uuid.UUID
     created_by: uuid.UUID
     created_at: CreatedAtMixin.__annotations__["created_at"]
     completed_at: Optional[datetime] = None
+
+
+class LeadFollowupTodayRead(LeadFollowupRead):
+    lead_title: Optional[str] = None
 
 
 class LeadFollowup(

@@ -6,7 +6,7 @@ from sqlmodel import Session
 
 from app.core.database import get_session
 from app.core.dependencies import get_current_user
-from app.models.lead_followup import LeadFollowupCreate, LeadFollowupDone, LeadFollowupRead
+from app.models.lead_followup import LeadFollowupCreate, LeadFollowupDone, LeadFollowupRead, LeadFollowupTodayRead
 from app.models.user import User
 from app.services.lead_followup_service import (
     create_followup as service_create_followup,
@@ -46,11 +46,11 @@ def list_lead_followups(
     return followups
 
 
-@router.get("/lead_followups/today", response_model=List[LeadFollowupRead])
+@router.get("/lead_followups/today", response_model=List[LeadFollowupTodayRead])
 def list_todays_followups(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
-) -> List[LeadFollowupRead]:
+) -> List[LeadFollowupTodayRead]:
     followups = service_list_todays_followups(
         session=session,
         current_user=current_user,

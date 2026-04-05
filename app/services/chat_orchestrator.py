@@ -16,7 +16,7 @@ from app.core.database import engine
 from app.models.chat import ChatThread
 from app.models.customer import CustomerCreateRequest
 from app.models.lead import LeadCreate
-from app.models.lead_followup import LeadFollowupCreate
+from app.models.lead_followup import LeadFollowupCreate, LeadFollowupUpdate
 from app.models.user import User
 from app.repositories import chat_message_repo, chat_thread_repo
 from app.services import customer_service, lead_followup_service, lead_service, pipeline_service
@@ -231,6 +231,15 @@ class ChatOrchestrator:
         elif action_type == "confirm_schedule_followup":
             result = self._confirm_schedule_followup(confirmed_data)
             reply = f"✓ Follow-up scheduled for {result['scheduled_date']}."
+        elif action_type == "confirm_complete_followup":
+            result = self._confirm_complete_followup(confirmed_data)
+            reply = f"✓ Follow-up marked as completed.{' Note: ' + result.get('note', '') if result.get('note') else ''}"
+        elif action_type == "confirm_reschedule_followup":
+            result = self._confirm_reschedule_followup(confirmed_data)
+            reply = f"✓ Follow-up rescheduled to {result['new_date']}{' ' + result.get('new_time', '') if result.get('new_time') else ''}."
+        elif action_type == "confirm_bulk_update_followups":
+            result = self._confirm_bulk_update_followups(confirmed_data)
+            reply = f"✓ {result['count']} follow-ups {result['action_label']}."
         elif action_type == "confirm_create_invoice":
             result = self._confirm_create_invoice(confirmed_data)
             reply = f"✓ Invoice {result['invoice_number']} created for ₹{result['total_amount']:,.2f}"
@@ -408,6 +417,110 @@ class ChatOrchestrator:
             "scheduled_at": followup.scheduled_at.isoformat(),
             "note": followup.note,
         }
+
+    def _confirm_complete_followup(self, confirmed_data: dict[str, Any]) -> dict[str, Any]:
+        followup_id = UUID(str(confirmed_data["followup_id"]))
+        outcome_note = str(confirmed_data.get("outcome_note") or "").strip()
+
+        followup = lead_followup_service.update_followup(
+            session=self.session,
+            current_user=self.current_user,
+            followup_id=followup_id,
+            data=LeadFollowupUpdate(
+                status="done",
+                note=outcome_note or None,
+                completed_at=datetime.now(timezone.utc),
+            ),
+        )
+        return {
+            "followup_id": str(followup.id),
+            "note": outcome_note,
+        }
+
+    def _confirm_reschedule_followup(self, confirmed_data: dict[str, Any]) -> dict[str, Any]:
+        followup_id = UUID(str(confirmed_data["followup_id"]))
+        new_date = str(confirmed_data.get("new_date") or "").strip()
+        new_time = str(confirmed_data.get("new_time") or "").strip()
+        reason = str(confirmed_data.get("reason") or "").strip()
+
+        if new_time:
+            new_scheduled_at = datetime.fromisoformat(f"{new_date}T{new_time}:00+00:00")
+        else:
+            new_scheduled_at = datetime.fromisoformat(f"{new_date}T09:00:00+00:00")
+
+        followup = lead_followup_service.update_followup(
+            session=self.session,
+            current_user=self.current_user,
+            followup_id=followup_id,
+            data=LeadFollowupUpdate(
+                scheduled_at=new_scheduled_at,
+                note=reason or None,
+                status="pending",
+                completed_at=None,
+            ),
+        )
+        return {
+            "followup_id": str(followup.id),
+            "new_date": new_scheduled_at.date().isoformat(),
+            "new_time": new_scheduled_at.strftime("%H:%M"),
+        }
+
+    def _confirm_bulk_update_followups(self, confirmed_data: dict[str, Any]) -> dict[str, Any]:
+        action = str(confirmed_data.get("action") or "complete")
+        followup_ids = confirmed_data.get("followup_ids", [])
+        note = str(confirmed_data.get("note") or "").strip()
+        reschedule_date = str(confirmed_data.get("reschedule_to_date") or "").strip()
+        reschedule_time = str(confirmed_data.get("reschedule_to_time") or "").strip()
+
+        count = 0
+        for fid_str in followup_ids:
+            try:
+                followup_id = UUID(str(fid_str))
+                if action == "complete":
+                    lead_followup_service.update_followup(
+                        session=self.session,
+                        current_user=self.current_user,
+                        followup_id=followup_id,
+                        data=LeadFollowupUpdate(
+                            status="done",
+                            note=note or "Bulk completed",
+                            completed_at=datetime.now(timezone.utc),
+                        ),
+                    )
+                elif action == "cancel":
+                    lead_followup_service.update_followup(
+                        session=self.session,
+                        current_user=self.current_user,
+                        followup_id=followup_id,
+                        data=LeadFollowupUpdate(
+                            status="cancelled",
+                            note=note or "Bulk cancelled",
+                            completed_at=None,
+                        ),
+                    )
+                elif action == "reschedule":
+                    if reschedule_time:
+                        new_dt = datetime.fromisoformat(f"{reschedule_date}T{reschedule_time}:00+00:00")
+                    else:
+                        new_dt = datetime.fromisoformat(f"{reschedule_date}T09:00:00+00:00")
+                    lead_followup_service.update_followup(
+                        session=self.session,
+                        current_user=self.current_user,
+                        followup_id=followup_id,
+                        data=LeadFollowupUpdate(
+                            scheduled_at=new_dt,
+                            note=note or "Bulk rescheduled",
+                            status="pending",
+                            completed_at=None,
+                        ),
+                    )
+                count += 1
+            except Exception as exc:
+                logger.error("Bulk followup update failed for %s: %s", fid_str, exc)
+                continue
+
+        action_labels = {"complete": "marked completed", "cancel": "cancelled", "rescheduled": "rescheduled", "reschedule": "rescheduled"}
+        return {"count": count, "action_label": action_labels.get(action, action)}
 
     def _confirm_create_invoice(self, confirmed_data: dict[str, Any]) -> dict[str, Any]:
         from app.models.enums import InvoiceStatus

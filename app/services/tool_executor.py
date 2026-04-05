@@ -12,7 +12,7 @@ from sqlmodel import Session
 
 from app.models.enums import InvoiceStatus, PaymentMethod, UserRole
 from app.models.lead import LeadCreate
-from app.models.lead_followup import LeadFollowupCreate
+from app.models.lead_followup import LeadFollowupCreate, LeadFollowupUpdate
 from app.models.payment import PaymentCreate
 from app.models.user import User
 from app.services import catalog_item_service, customer_service, dashboard_service, invoice_service
@@ -49,6 +49,7 @@ class ToolExecutor:
         "get_unpaid_invoice_summary",
         "get_recent_payments",
         "get_revenue_summary",
+        "get_stale_followups",
     }
 
     WRITE_TOOLS = {
@@ -59,6 +60,9 @@ class ToolExecutor:
         "add_lead_note",
         "record_payment",
         "send_payment_reminder",
+        "complete_followup",
+        "reschedule_followup",
+        "bulk_update_followups",
     }
 
     def __init__(self, session: Session, current_user: User) -> None:
@@ -337,6 +341,54 @@ class ToolExecutor:
             }
         }
 
+    async def _get_stale_followups(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        older_than_days = max(1, int(args.get("older_than_days", 7) or 7))
+        customer_id = self._optional_uuid(args.get("customer_id"))
+        lead_id = self._optional_uuid(args.get("lead_id"))
+        limit = max(1, int(args.get("limit", 30) or 30))
+
+        followups = lead_followup_service.list_followups(
+            session=self.session,
+            current_user=self.current_user,
+            lead_id=lead_id,
+            customer_id=customer_id,
+            status="pending",
+            older_than_days=older_than_days,
+            limit=limit,
+        )
+
+        lines: list[str] = []
+        items: list[dict[str, Any]] = []
+        today = date.today()
+        for followup in followups:
+            customer_name, lead_title = self._get_followup_display_context(followup.lead_id)
+            days_old = max(0, (today - followup.scheduled_at.date()).days)
+            lines.append(
+                f"- {lead_title or 'Untitled'} ({customer_name or 'Unknown'}) · "
+                f"{days_old} days old · scheduled: {followup.scheduled_at.date().isoformat()}"
+            )
+            items.append(
+                {
+                    "followup_id": str(followup.id),
+                    "lead_id": str(followup.lead_id),
+                    "lead": lead_title,
+                    "customer_name": customer_name,
+                    "scheduled_at": followup.scheduled_at.isoformat(),
+                    "note": followup.note,
+                    "status": followup.status,
+                }
+            )
+
+        return {
+            "data": {
+                "followups": "\n".join(lines) if lines else f"No stale follow-ups older than {older_than_days} days",
+                "items": items,
+                "count": len(items),
+                "older_than_days": older_than_days,
+            }
+        }
+
     async def _get_catalog_items(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
         items = catalog_item_service.list_catalog_items(
             session=self.session,
@@ -435,6 +487,161 @@ class ToolExecutor:
             "action": {
                 "type": "confirm_schedule_followup",
                 "form_name": "schedule_followup",
+                "prefilled_data": payload,
+            },
+        }
+
+    async def _complete_followup(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        followup_id = self._require_uuid(args, "followup_id")
+        outcome_note = str(args.get("outcome_note") or "").strip()
+
+        followup = lead_followup_service.get_followup(
+            session=self.session,
+            current_user=self.current_user,
+            followup_id=followup_id,
+        )
+        customer_name, lead_title = self._get_followup_display_context(followup.lead_id)
+
+        payload = {
+            "followup_id": str(followup_id),
+            "lead_id": str(followup.lead_id),
+            "lead_title": lead_title or "",
+            "customer_name": customer_name or "",
+            "scheduled_at": followup.scheduled_at.isoformat(),
+            "followup_type": "call",
+            "outcome_note": outcome_note,
+            "new_status": "completed",
+        }
+        return {
+            "data": {"message": "Follow-up completion prepared for review"},
+            "action": {
+                "type": "confirm_complete_followup",
+                "form_name": "complete_followup",
+                "prefilled_data": payload,
+            },
+        }
+
+    async def _reschedule_followup(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        followup_id = self._require_uuid(args, "followup_id")
+        new_date = self._require_str(args, "new_date")
+        new_time = str(args.get("new_time") or "").strip()
+        reason = str(args.get("reason") or "").strip()
+
+        followup = lead_followup_service.get_followup(
+            session=self.session,
+            current_user=self.current_user,
+            followup_id=followup_id,
+        )
+        if not new_time:
+            new_time = followup.scheduled_at.strftime("%H:%M")
+
+        customer_name, lead_title = self._get_followup_display_context(followup.lead_id)
+        payload = {
+            "followup_id": str(followup_id),
+            "lead_id": str(followup.lead_id),
+            "lead_title": lead_title or "",
+            "customer_name": customer_name or "",
+            "original_date": followup.scheduled_at.isoformat(),
+            "new_date": new_date,
+            "new_time": new_time,
+            "reason": reason,
+            "followup_type": "call",
+        }
+        return {
+            "data": {"message": "Follow-up reschedule prepared for review"},
+            "action": {
+                "type": "confirm_reschedule_followup",
+                "form_name": "reschedule_followup",
+                "prefilled_data": payload,
+            },
+        }
+
+    async def _bulk_update_followups(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        action = str(args.get("action") or "complete")
+        filter_type = str(args.get("filter_type") or "today")
+        filter_value = str(args.get("filter_value") or "").strip()
+        reschedule_date = str(args.get("reschedule_to_date") or "").strip()
+        reschedule_time = str(args.get("reschedule_to_time") or "").strip()
+        note = str(args.get("note") or "").strip()
+        today = date.today()
+
+        if action == "reschedule" and not reschedule_date:
+            raise ValueError("reschedule_to_date is required when action is reschedule")
+
+        query_args: dict[str, Any] = {"status": "pending", "limit": 200}
+        if filter_type == "today":
+            query_args["date_value"] = today
+        elif filter_type == "overdue":
+            query_args["before_date"] = today
+        elif filter_type == "date_range":
+            parts = [part.strip() for part in filter_value.split(",", 1)]
+            if not parts or not parts[0]:
+                raise ValueError("date_range filter requires 'YYYY-MM-DD,YYYY-MM-DD'")
+            query_args["from_date"] = self._parse_date(parts[0])
+            query_args["to_date"] = self._parse_date(parts[1] if len(parts) > 1 and parts[1] else parts[0])
+        elif filter_type == "customer":
+            query_args["customer_id"] = self._require_uuid({"customer_id": filter_value}, "customer_id")
+        elif filter_type == "lead":
+            query_args["lead_id"] = self._require_uuid({"lead_id": filter_value}, "lead_id")
+        elif filter_type == "ids":
+            ids = [UUID(item.strip()) for item in filter_value.split(",") if item.strip()]
+            if not ids:
+                raise ValueError("ids filter requires one or more follow-up IDs")
+            query_args["followup_ids"] = ids
+        else:
+            raise ValueError("Unsupported filter_type")
+
+        followups = lead_followup_service.list_followups(
+            session=self.session,
+            current_user=self.current_user,
+            **query_args,
+        )
+        if not followups:
+            return {"data": {"message": "No matching pending follow-ups found.", "count": 0}}
+
+        action_labels = {"complete": "Mark completed", "cancel": "Cancel/Close", "reschedule": "Reschedule"}
+        filter_labels = {
+            "today": "today's",
+            "overdue": "overdue",
+            "date_range": f"from {filter_value}",
+            "customer": "for this customer",
+            "lead": "for this lead",
+            "ids": f"{len(followups)} selected",
+        }
+
+        summaries: list[dict[str, Any]] = []
+        for followup in followups:
+            customer_name, lead_title = self._get_followup_display_context(followup.lead_id)
+            summaries.append(
+                {
+                    "followup_id": str(followup.id),
+                    "lead_title": lead_title or "",
+                    "customer_name": customer_name or "",
+                    "scheduled_at": followup.scheduled_at.isoformat(),
+                    "followup_type": "call",
+                }
+            )
+
+        payload = {
+            "action": action,
+            "action_label": action_labels.get(action, action),
+            "filter_type": filter_type,
+            "filter_label": filter_labels.get(filter_type, filter_type),
+            "count": len(followups),
+            "followups": summaries,
+            "followup_ids": [str(followup.id) for followup in followups],
+            "reschedule_to_date": reschedule_date if action == "reschedule" else "",
+            "reschedule_to_time": reschedule_time if action == "reschedule" else "",
+            "note": note,
+        }
+        return {
+            "data": {"message": f"Bulk update prepared: {len(followups)} follow-ups"},
+            "action": {
+                "type": "confirm_bulk_update_followups",
+                "form_name": "bulk_update_followups",
                 "prefilled_data": payload,
             },
         }
@@ -959,6 +1166,7 @@ class ToolExecutor:
             "list_customer_payments",
             "create_lead",
             "prepare_invoice",
+            "get_stale_followups",
         }:
             args.setdefault("customer_id", str(context_id))
             if tool_name == "prepare_invoice" and "customer_name" not in args:
@@ -975,8 +1183,17 @@ class ToolExecutor:
             "schedule_followup",
             "prepare_invoice",
             "add_lead_note",
+            "get_stale_followups",
         }:
             args.setdefault("lead_id", str(context_id))
+
+        if context_type == "customer" and tool_name == "bulk_update_followups":
+            if args.get("filter_type") == "customer" and not args.get("filter_value"):
+                args.setdefault("filter_value", str(context_id))
+
+        if context_type == "lead" and tool_name == "bulk_update_followups":
+            if args.get("filter_type") == "lead" and not args.get("filter_value"):
+                args.setdefault("filter_value", str(context_id))
 
         if context_type == "lead" and tool_name == "prepare_invoice" and "customer_id" not in args:
             lead = lead_service.get_lead(self.session, self.current_user, context_id)
@@ -1004,6 +1221,11 @@ class ToolExecutor:
         if not text:
             raise ValueError(f"{key} is required")
         return text
+
+    def _optional_uuid(self, value: Any) -> UUID | None:
+        if value is None or value == "":
+            return None
+        return UUID(str(value))
 
     def _parse_date(self, value: str) -> datetime.date:
         return datetime.strptime(value, "%Y-%m-%d").date()
@@ -1034,6 +1256,9 @@ class ToolExecutor:
             except HTTPException:
                 customer_name = None
         return customer_name, lead.title
+
+    def _get_followup_display_context(self, lead_id: UUID | None) -> tuple[str | None, str | None]:
+        return self._get_invoice_display_context(lead_id)
 
     def _optional_payment_method(self, value: Any) -> PaymentMethod:
         if value is None or value == "":
