@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Any
@@ -50,6 +51,9 @@ class ToolExecutor:
         "get_recent_payments",
         "get_revenue_summary",
         "get_stale_followups",
+        "query_invoices",
+        "get_billing_analytics",
+        "get_invoice_payment_history",
     }
 
     WRITE_TOOLS = {
@@ -63,6 +67,7 @@ class ToolExecutor:
         "complete_followup",
         "reschedule_followup",
         "bulk_update_followups",
+        "update_invoice",
     }
 
     def __init__(self, session: Session, current_user: User) -> None:
@@ -410,6 +415,475 @@ class ToolExecutor:
                     for item in items
                 ],
                 "count": len(items),
+            }
+        }
+
+    async def _query_invoices(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        period = str(args.get("period") or "").strip() or None
+        from_date, to_date = self._resolve_query_period(
+            period=period,
+            from_value=args.get("from_date"),
+            to_value=args.get("to_date"),
+        )
+        customer_id = self._optional_uuid(args.get("customer_id"))
+        lead_id = self._optional_uuid(args.get("lead_id"))
+        status_filter = self._optional_invoice_status(args.get("status"))
+        limit = max(1, int(args.get("limit", 20) or 20))
+        fetch_limit = min(max(limit * 5, 100), 300)
+
+        invoices, _, _ = invoice_service.list_invoices(
+            session=self.session,
+            current_user=self.current_user,
+            customer_id=customer_id,
+            status=status_filter,
+            from_date=from_date,
+            to_date=to_date,
+            lead_id=lead_id,
+            limit=fetch_limit,
+            offset=0,
+        )
+
+        min_amount = self._optional_decimal(args.get("min_amount"))
+        max_amount = self._optional_decimal(args.get("max_amount"))
+        payment_status = str(args.get("payment_status") or "").strip() or None
+        search = str(args.get("search") or "").strip().lower()
+
+        filtered = []
+        for invoice in invoices:
+            total_amount = float(invoice.total_amount or 0)
+            amount_paid = float(invoice.amount_paid or 0)
+            balance_due = max(total_amount - amount_paid, 0)
+
+            if min_amount is not None and total_amount < float(min_amount):
+                continue
+            if max_amount is not None and total_amount > float(max_amount):
+                continue
+
+            if payment_status == "unpaid" and amount_paid > 0:
+                continue
+            if payment_status == "partially_paid" and (amount_paid <= 0 or amount_paid >= total_amount):
+                continue
+            if payment_status == "fully_paid" and amount_paid < total_amount:
+                continue
+
+            if search and not self._invoice_matches_search(invoice.id, invoice, search):
+                continue
+
+            filtered.append((invoice, total_amount, amount_paid, balance_due))
+
+        sort_by = str(args.get("sort_by") or "date")
+        if sort_by == "amount":
+            filtered.sort(key=lambda row: row[1], reverse=True)
+        elif sort_by == "due_date":
+            filtered.sort(key=lambda row: (row[0].due_date is None, row[0].due_date or date.max))
+        elif sort_by == "outstanding":
+            filtered.sort(key=lambda row: row[3], reverse=True)
+        else:
+            filtered.sort(key=lambda row: row[0].issued_date, reverse=True)
+
+        total_billed = 0.0
+        total_collected = 0.0
+        total_pending = 0.0
+        overdue_count = 0
+        today = date.today()
+        for invoice, total_amount, amount_paid, balance_due in filtered:
+            total_billed += total_amount
+            total_collected += amount_paid
+            total_pending += balance_due
+            if balance_due > 0 and invoice.due_date < today:
+                overdue_count += 1
+
+        limited_rows = filtered[:limit]
+        lines: list[str] = []
+        items: list[dict[str, Any]] = []
+        for invoice, total_amount, amount_paid, balance_due in limited_rows:
+            line = (
+                f"- {invoice.invoice_number} · {invoice.customer_name or 'Unknown'} · ₹{total_amount:,.0f} "
+                f"(paid: ₹{amount_paid:,.0f}, pending: ₹{balance_due:,.0f}) · {invoice.status.value}"
+            )
+            if invoice.due_date:
+                line += f" · due: {invoice.due_date.isoformat()}"
+            lines.append(line)
+            items.append(
+                {
+                    "invoice_id": str(invoice.id),
+                    "invoice_number": invoice.invoice_number,
+                    "customer_name": invoice.customer_name,
+                    "lead_title": invoice.lead_title,
+                    "issued_date": invoice.issued_date.isoformat(),
+                    "due_date": invoice.due_date.isoformat(),
+                    "total_amount": total_amount,
+                    "amount_paid": amount_paid,
+                    "balance_due": balance_due,
+                    "status": invoice.status.value,
+                }
+            )
+
+        return {
+            "data": {
+                "invoices": "\n".join(lines) if lines else "No invoices found matching these filters.",
+                "items": items,
+                "count": len(filtered),
+                "total_billed": round(total_billed, 2),
+                "total_collected": round(total_collected, 2),
+                "total_pending": round(total_pending, 2),
+                "overdue_count": overdue_count,
+                "average_invoice_value": round(total_billed / len(filtered), 2) if filtered else 0,
+                "filters_applied": {
+                    key: value
+                    for key, value in {
+                        "period": period,
+                        "from_date": from_date.isoformat() if from_date else None,
+                        "to_date": to_date.isoformat() if to_date else None,
+                        "status": status_filter.value if status_filter else None,
+                        "customer_id": str(customer_id) if customer_id else None,
+                        "lead_id": str(lead_id) if lead_id else None,
+                        "payment_status": payment_status,
+                        "search": search or None,
+                        "min_amount": float(min_amount) if min_amount is not None else None,
+                        "max_amount": float(max_amount) if max_amount is not None else None,
+                    }.items()
+                    if value is not None
+                },
+            }
+        }
+
+    async def _update_invoice(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        invoice_id = self._require_uuid(args, "invoice_id")
+        invoice = invoice_service.get_invoice(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+
+        if invoice.status == InvoiceStatus.PAID:
+            raise ValueError("Paid invoices cannot be updated")
+
+        items = invoice_service.list_invoice_items(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+
+        current_items: list[dict[str, Any]] = []
+        for item in items:
+            current_items.append(
+                {
+                    "catalog_item_id": str(item.catalog_item_id) if item.catalog_item_id else None,
+                    "name": item.name,
+                    "description": item.description,
+                    "quantity": float(item.quantity),
+                    "rate": float(item.unit_price),
+                    "unit": item.unit or "piece",
+                    "gst_percent": float(item.gst_percent),
+                    "line_total": float(item.amount + ((item.amount * item.gst_percent) / Decimal("100"))),
+                }
+            )
+
+        changes: dict[str, Any] = {}
+        new_status = str(args.get("new_status") or "").strip() or None
+        if new_status:
+            if invoice.status != InvoiceStatus.DRAFT or new_status != InvoiceStatus.SENT.value:
+                raise ValueError("Only draft invoices can be marked as sent")
+            changes["new_status"] = new_status
+
+        new_due_date = str(args.get("new_due_date") or "").strip() or None
+        if new_due_date:
+            changes["new_due_date"] = new_due_date
+
+        add_items = list(args.get("add_items") or [])
+        update_items = list(args.get("update_items") or [])
+        remove_item_names = [str(name) for name in (args.get("remove_item_names") or []) if str(name).strip()]
+        has_item_changes = bool(add_items or update_items or remove_item_names)
+        if has_item_changes and invoice.status != InvoiceStatus.DRAFT:
+            raise ValueError("Line items can only be modified on draft invoices")
+
+        proposed_items = [dict(item) for item in current_items]
+
+        if remove_item_names:
+            remove_names = {name.lower() for name in remove_item_names}
+            before_count = len(proposed_items)
+            proposed_items = [item for item in proposed_items if item["name"].lower() not in remove_names]
+            if len(proposed_items) == before_count:
+                raise ValueError("No matching invoice items found to remove")
+            changes["removed_items"] = remove_item_names
+
+        if update_items:
+            updated_labels: list[str] = []
+            for update in update_items:
+                target_name = str(update.get("item_name") or "").strip().lower()
+                target_index = update.get("item_index")
+                matched_index = None
+                for index, item in enumerate(proposed_items):
+                    if target_name and item["name"].lower() == target_name:
+                        matched_index = index
+                        break
+                    if target_index is not None and index == int(target_index):
+                        matched_index = index
+                        break
+
+                if matched_index is None:
+                    raise ValueError("Invoice item to update was not found")
+
+                item = proposed_items[matched_index]
+                if "new_rate" in update and update.get("new_rate") is not None:
+                    item["rate"] = float(update["new_rate"])
+                if "new_quantity" in update and update.get("new_quantity") is not None:
+                    item["quantity"] = float(update["new_quantity"])
+                if "new_name" in update and update.get("new_name"):
+                    item["name"] = str(update["new_name"])
+                if "new_unit" in update and update.get("new_unit"):
+                    item["unit"] = str(update["new_unit"])
+                if "new_gst_percent" in update and update.get("new_gst_percent") is not None:
+                    item["gst_percent"] = float(update["new_gst_percent"])
+                if "new_description" in update and update.get("new_description"):
+                    item["description"] = str(update["new_description"])
+
+                line_subtotal = item["quantity"] * item["rate"]
+                item["line_total"] = round(line_subtotal * (1 + item["gst_percent"] / 100), 2)
+                updated_labels.append(item.get("name") or str(target_index))
+
+            changes["updated_items"] = updated_labels
+
+        if add_items:
+            added_labels: list[str] = []
+            for item in add_items:
+                quantity = float(item.get("quantity", 1) or 1)
+                rate = float(item.get("rate", 0) or 0)
+                gst_percent = float(item.get("gst_percent", 18) or 18)
+                line_total = round(quantity * rate * (1 + gst_percent / 100), 2)
+                proposed_item = {
+                    "catalog_item_id": item.get("catalog_item_id"),
+                    "name": str(item.get("name") or "").strip(),
+                    "description": str(item.get("description") or item.get("name") or "").strip(),
+                    "quantity": quantity,
+                    "rate": rate,
+                    "unit": str(item.get("unit") or "piece"),
+                    "gst_percent": gst_percent,
+                    "line_total": line_total,
+                }
+                proposed_items.append(proposed_item)
+                added_labels.append(proposed_item["name"])
+            changes["added_items"] = added_labels
+
+        proposed_subtotal = None
+        proposed_tax = None
+        proposed_total = None
+        if has_item_changes:
+            proposed_subtotal = round(sum(item["quantity"] * item["rate"] for item in proposed_items), 2)
+            proposed_tax = round(
+                sum(item["quantity"] * item["rate"] * item["gst_percent"] / 100 for item in proposed_items),
+                2,
+            )
+            proposed_total = round(proposed_subtotal + proposed_tax, 2)
+
+        payload = {
+            "invoice_id": str(invoice.id),
+            "invoice_number": invoice.invoice_number,
+            "current_status": invoice.status.value,
+            "current_due_date": invoice.due_date.isoformat() if invoice.due_date else None,
+            "current_total": float(invoice.total_amount or 0),
+            "changes": changes,
+            "proposed_items": proposed_items if has_item_changes else None,
+            "proposed_subtotal": proposed_subtotal,
+            "proposed_tax": proposed_tax,
+            "proposed_total": proposed_total,
+        }
+
+        return {
+            "data": {"message": "Invoice update prepared for review"},
+            "action": {
+                "type": "confirm_update_invoice",
+                "form_name": "update_invoice",
+                "prefilled_data": payload,
+            },
+        }
+
+    async def _get_billing_analytics(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        period = self._require_str(args, "period")
+        compare_with = str(args.get("compare_with") or "").strip() or None
+        group_by = str(args.get("group_by") or "").strip() or None
+        limit = max(1, int(args.get("limit", 10) or 10))
+        start_date, end_date = self._resolve_analytics_period(period)
+
+        invoices, _, _ = invoice_service.list_invoices(
+            session=self.session,
+            current_user=self.current_user,
+            from_date=start_date,
+            to_date=end_date,
+            limit=500,
+            offset=0,
+        )
+
+        today = date.today()
+        total_billed = 0.0
+        total_collected = 0.0
+        total_pending = 0.0
+        overdue_count = 0
+        status_breakdown: dict[str, int] = defaultdict(int)
+
+        for invoice in invoices:
+            total_amount = float(invoice.total_amount or 0)
+            amount_paid = float(invoice.amount_paid or 0)
+            balance_due = max(total_amount - amount_paid, 0)
+            total_billed += total_amount
+            total_collected += amount_paid
+            total_pending += balance_due
+            status_breakdown[invoice.status.value] += 1
+            if balance_due > 0 and invoice.due_date < today:
+                overdue_count += 1
+
+        data: dict[str, Any] = {
+            "period": period,
+            "period_range": f"{start_date.isoformat()} to {end_date.isoformat()}",
+            "total_invoices": len(invoices),
+            "total_billed": round(total_billed, 2),
+            "total_collected": round(total_collected, 2),
+            "total_pending": round(total_pending, 2),
+            "average_invoice_value": round(total_billed / len(invoices), 2) if invoices else 0,
+            "collection_rate_percent": round((total_collected / total_billed) * 100, 1) if total_billed > 0 else 0,
+            "overdue_count": overdue_count,
+            "status_breakdown": dict(status_breakdown),
+        }
+
+        if compare_with == "previous_period":
+            duration_days = (end_date - start_date).days
+            previous_end = start_date - timedelta(days=1)
+            previous_start = previous_end - timedelta(days=duration_days)
+            previous_invoices, _, _ = invoice_service.list_invoices(
+                session=self.session,
+                current_user=self.current_user,
+                from_date=previous_start,
+                to_date=previous_end,
+                limit=500,
+                offset=0,
+            )
+            previous_billed = sum(float(invoice.total_amount or 0) for invoice in previous_invoices)
+            previous_collected = sum(float(invoice.amount_paid or 0) for invoice in previous_invoices)
+            data["comparison"] = {
+                "previous_period": f"{previous_start.isoformat()} to {previous_end.isoformat()}",
+                "prev_total_billed": round(previous_billed, 2),
+                "prev_total_collected": round(previous_collected, 2),
+                "prev_invoice_count": len(previous_invoices),
+                "billed_change_percent": round(((total_billed - previous_billed) / previous_billed) * 100, 1)
+                if previous_billed > 0
+                else 0,
+                "collected_change_percent": round(((total_collected - previous_collected) / previous_collected) * 100, 1)
+                if previous_collected > 0
+                else 0,
+            }
+
+        if group_by == "customer":
+            customer_totals: dict[str, dict[str, Any]] = defaultdict(
+                lambda: {"name": "Unknown", "billed": 0.0, "collected": 0.0, "count": 0}
+            )
+            for invoice in invoices:
+                customer_key = str(getattr(invoice, "customer_name", None) or getattr(invoice, "id"))
+                customer_totals[customer_key]["name"] = invoice.customer_name or "Unknown"
+                customer_totals[customer_key]["billed"] += float(invoice.total_amount or 0)
+                customer_totals[customer_key]["collected"] += float(invoice.amount_paid or 0)
+                customer_totals[customer_key]["count"] += 1
+
+            top_customers = sorted(customer_totals.values(), key=lambda item: item["billed"], reverse=True)[:limit]
+            data["grouped_by"] = "customer"
+            data["top_entries"] = "\n".join(
+                f"{index}. {customer['name']} — ₹{customer['billed']:,.0f} billed, ₹{customer['collected']:,.0f} collected ({customer['count']} invoices)"
+                for index, customer in enumerate(top_customers, 1)
+            )
+
+        elif group_by == "item":
+            item_totals: dict[str, dict[str, float]] = defaultdict(lambda: {"revenue": 0.0, "quantity": 0.0})
+            for invoice in invoices:
+                invoice_items = invoice_service.list_invoice_items(
+                    session=self.session,
+                    current_user=self.current_user,
+                    invoice_id=invoice.id,
+                )
+                for item in invoice_items:
+                    revenue = float(item.amount + ((item.amount * item.gst_percent) / Decimal("100")))
+                    item_totals[item.name]["revenue"] += revenue
+                    item_totals[item.name]["quantity"] += float(item.quantity or 0)
+
+            top_items = sorted(item_totals.items(), key=lambda item: item[1]["revenue"], reverse=True)[:limit]
+            data["grouped_by"] = "item"
+            data["top_entries"] = "\n".join(
+                f"{index}. {name} — ₹{values['revenue']:,.0f} ({values['quantity']:,.0f} units)"
+                for index, (name, values) in enumerate(top_items, 1)
+            )
+
+        elif group_by == "month":
+            month_totals: dict[str, dict[str, float]] = defaultdict(lambda: {"billed": 0.0, "collected": 0.0, "count": 0})
+            for invoice in invoices:
+                month_key = invoice.issued_date.strftime("%Y-%m")
+                month_totals[month_key]["billed"] += float(invoice.total_amount or 0)
+                month_totals[month_key]["collected"] += float(invoice.amount_paid or 0)
+                month_totals[month_key]["count"] += 1
+
+            data["grouped_by"] = "month"
+            data["breakdown"] = "\n".join(
+                f"- {month}: ₹{values['billed']:,.0f} billed, ₹{values['collected']:,.0f} collected ({int(values['count'])} invoices)"
+                for month, values in sorted(month_totals.items())
+            )
+
+        elif group_by == "status":
+            data["grouped_by"] = "status"
+            data["breakdown"] = "\n".join(
+                f"- {status}: {count} invoices"
+                for status, count in sorted(status_breakdown.items(), key=lambda row: row[1], reverse=True)
+            )
+
+        return {"data": data}
+
+    async def _get_invoice_payment_history(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        invoice_id = self._require_uuid(args, "invoice_id")
+        invoice = invoice_service.get_invoice(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+        payments = payment_service.list_payments(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+        payments.sort(key=lambda payment: (payment.payment_date, payment.created_at), reverse=True)
+
+        total_paid = 0.0
+        lines: list[str] = []
+        items: list[dict[str, Any]] = []
+        for payment in payments:
+            amount = float(payment.amount)
+            total_paid += amount
+            line = f"- ₹{amount:,.0f} · {payment.payment_method.value} · {payment.payment_date.isoformat()}"
+            if payment.reference:
+                line += f" · Ref: {payment.reference}"
+            lines.append(line)
+            items.append(
+                {
+                    "payment_id": str(payment.id),
+                    "amount": amount,
+                    "payment_method": payment.payment_method.value,
+                    "payment_date": payment.payment_date.isoformat(),
+                    "reference": payment.reference,
+                }
+            )
+
+        total_amount = float(invoice.total_amount or 0)
+        return {
+            "data": {
+                "invoice_id": str(invoice_id),
+                "invoice_number": invoice.invoice_number,
+                "total_amount": total_amount,
+                "total_paid": round(total_paid, 2),
+                "balance_due": round(max(total_amount - total_paid, 0), 2),
+                "payment_count": len(payments),
+                "payments": "\n".join(lines) if lines else "No payments recorded yet.",
+                "items": items,
+                "last_payment_date": payments[0].payment_date.isoformat() if payments else None,
             }
         }
 
@@ -1163,6 +1637,7 @@ class ToolExecutor:
         if context_type == "customer" and tool_name in {
             "get_customer_outstanding",
             "list_customer_invoices",
+            "query_invoices",
             "list_customer_payments",
             "create_lead",
             "prepare_invoice",
@@ -1181,6 +1656,7 @@ class ToolExecutor:
             "get_lead_followups",
             "update_lead_stage",
             "schedule_followup",
+            "query_invoices",
             "prepare_invoice",
             "add_lead_note",
             "get_stale_followups",
@@ -1264,6 +1740,105 @@ class ToolExecutor:
         if value is None or value == "":
             return PaymentMethod.UPI
         return PaymentMethod(str(value))
+
+    def _optional_decimal(self, value: Any) -> Decimal | None:
+        if value is None or value == "":
+            return None
+        return Decimal(str(value))
+
+    def _resolve_query_period(
+        self,
+        *,
+        period: str | None,
+        from_value: Any,
+        to_value: Any,
+    ) -> tuple[date | None, date | None]:
+        today = date.today()
+        if not period:
+            return (
+                self._parse_date(str(from_value)) if from_value else None,
+                self._parse_date(str(to_value)) if to_value else None,
+            )
+
+        if period == "today":
+            return today, today
+        if period == "this_week":
+            return today - timedelta(days=today.weekday()), today
+        if period == "this_month":
+            return today.replace(day=1), today
+        if period == "last_month":
+            first_of_this_month = today.replace(day=1)
+            last_of_last_month = first_of_this_month - timedelta(days=1)
+            return last_of_last_month.replace(day=1), last_of_last_month
+        if period == "last_2_months":
+            first_of_this_month = today.replace(day=1)
+            last_of_previous_month = first_of_this_month - timedelta(days=1)
+            first_of_previous_month = last_of_previous_month.replace(day=1)
+            last_of_two_months_ago = first_of_previous_month - timedelta(days=1)
+            return last_of_two_months_ago.replace(day=1), today
+        if period == "last_quarter":
+            current_quarter_start_month = ((today.month - 1) // 3) * 3 + 1
+            current_quarter_start = today.replace(month=current_quarter_start_month, day=1)
+            previous_quarter_end = current_quarter_start - timedelta(days=1)
+            previous_quarter_start_month = ((previous_quarter_end.month - 1) // 3) * 3 + 1
+            previous_quarter_start = previous_quarter_end.replace(month=previous_quarter_start_month, day=1)
+            return previous_quarter_start, previous_quarter_end
+        if period == "this_year":
+            return today.replace(month=1, day=1), today
+        if period == "last_30_days":
+            return today - timedelta(days=30), today
+        if period == "last_90_days":
+            return today - timedelta(days=90), today
+        if period == "custom":
+            return (
+                self._parse_date(str(from_value)) if from_value else None,
+                self._parse_date(str(to_value)) if to_value else None,
+            )
+        return None, None
+
+    def _resolve_analytics_period(self, period: str) -> tuple[date, date]:
+        today = date.today()
+        if period == "this_month":
+            return today.replace(day=1), today
+        if period == "last_month":
+            first_of_this_month = today.replace(day=1)
+            last_of_last_month = first_of_this_month - timedelta(days=1)
+            return last_of_last_month.replace(day=1), last_of_last_month
+        if period == "this_quarter":
+            quarter_start_month = ((today.month - 1) // 3) * 3 + 1
+            return today.replace(month=quarter_start_month, day=1), today
+        if period == "last_quarter":
+            quarter_start_month = ((today.month - 1) // 3) * 3 + 1
+            current_quarter_start = today.replace(month=quarter_start_month, day=1)
+            previous_quarter_end = current_quarter_start - timedelta(days=1)
+            previous_quarter_start_month = ((previous_quarter_end.month - 1) // 3) * 3 + 1
+            return previous_quarter_end.replace(month=previous_quarter_start_month, day=1), previous_quarter_end
+        if period == "last_3_months":
+            return today - timedelta(days=90), today
+        if period == "last_6_months":
+            return today - timedelta(days=180), today
+        if period == "this_year":
+            return today.replace(month=1, day=1), today
+        return today.replace(day=1), today
+
+    def _invoice_matches_search(self, invoice_id: UUID, invoice: Any, search: str) -> bool:
+        haystacks = [
+            str(getattr(invoice, "invoice_number", "") or "").lower(),
+            str(getattr(invoice, "customer_name", "") or "").lower(),
+            str(getattr(invoice, "lead_title", "") or "").lower(),
+        ]
+        if any(search in haystack for haystack in haystacks):
+            return True
+
+        invoice_items = invoice_service.list_invoice_items(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+        for item in invoice_items:
+            if search in (item.name or "").lower() or search in (item.description or "").lower():
+                return True
+        return False
 
     def _decimal_to_float(self, value: Decimal | None) -> float | None:
         if value is None:

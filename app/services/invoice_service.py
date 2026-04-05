@@ -161,13 +161,34 @@ def update_invoice(
             detail="Invoice not found",
         )
 
-    if invoice.status != InvoiceStatus.DRAFT:
+    if invoice.status == InvoiceStatus.PAID:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only draft invoices can be edited",
+            detail="Paid invoices cannot be edited",
         )
 
     update_data = data.invoice.model_dump(exclude_unset=True)
+    requested_status = update_data.get("status")
+
+    if data.items is not None and invoice.status != InvoiceStatus.DRAFT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only draft invoices can edit line items",
+        )
+
+    if requested_status is not None:
+        allowed_transitions = {
+            InvoiceStatus.DRAFT: {InvoiceStatus.SENT},
+            InvoiceStatus.SENT: set(),
+            InvoiceStatus.PARTIAL: set(),
+            InvoiceStatus.OVERDUE: set(),
+        }
+        if requested_status not in allowed_transitions.get(invoice.status, set()):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot change status from {invoice.status.value} to {requested_status.value}",
+            )
+
     if data.items is not None:
         totals = calculate_totals(data.items)
         update_data["subtotal"] = totals["subtotal"]
@@ -328,6 +349,7 @@ class InvoiceData(SQLModel):
 class InvoiceUpdateData(SQLModel):
     issued_date: Optional[date] = None
     due_date: Optional[date] = None
+    status: Optional[InvoiceStatus] = None
 
 
 class InvoiceCreateWithItems(SQLModel):

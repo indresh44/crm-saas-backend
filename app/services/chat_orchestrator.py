@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, time, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -243,6 +243,9 @@ class ChatOrchestrator:
         elif action_type == "confirm_create_invoice":
             result = self._confirm_create_invoice(confirmed_data)
             reply = f"✓ Invoice {result['invoice_number']} created for ₹{result['total_amount']:,.2f}"
+        elif action_type == "confirm_update_invoice":
+            result = self._confirm_update_invoice(confirmed_data)
+            reply = f"✓ {result['summary']}"
         elif action_type == "confirm_add_lead_note":
             result = self._confirm_add_lead_note(confirmed_data)
             reply = "✓ Note added to lead."
@@ -575,6 +578,80 @@ class ChatOrchestrator:
             "invoice_id": str(invoice.id),
             "invoice_number": invoice.invoice_number,
             "total_amount": float(invoice.total_amount),
+        }
+
+    def _confirm_update_invoice(self, confirmed_data: dict[str, Any]) -> dict[str, Any]:
+        from app.models.enums import InvoiceStatus
+        from app.models.invoice_item import InvoiceItemCreate
+        from app.services.invoice_service import InvoiceUpdateData, InvoiceUpdateWithItems
+
+        invoice_id = UUID(str(confirmed_data["invoice_id"]))
+        changes = confirmed_data.get("changes", {})
+        proposed_items = confirmed_data.get("proposed_items")
+        invoice_number = str(confirmed_data.get("invoice_number") or "")
+
+        invoice = invoice_service.get_invoice(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+
+        update_data = InvoiceUpdateData()
+        summary_parts: list[str] = []
+
+        new_status = changes.get("new_status")
+        if new_status:
+            update_data.status = InvoiceStatus(str(new_status))
+            summary_parts.append(f"status → {new_status}")
+
+        new_due_date = changes.get("new_due_date")
+        if new_due_date:
+            update_data.due_date = date.fromisoformat(str(new_due_date))
+            summary_parts.append(f"due date → {new_due_date}")
+
+        items = None
+        if proposed_items is not None:
+            items = [
+                InvoiceItemCreate(
+                    catalog_item_id=UUID(str(item["catalog_item_id"])) if item.get("catalog_item_id") else None,
+                    name=str(item.get("name") or "").strip(),
+                    description=str(item.get("description") or item.get("name") or "").strip(),
+                    unit=str(item.get("unit") or "piece"),
+                    quantity=self._to_decimal(item.get("quantity")) or Decimal("1"),
+                    unit_price=self._to_decimal(item.get("rate")) or Decimal("0"),
+                    gst_percent=self._to_decimal(item.get("gst_percent")) or Decimal("18"),
+                )
+                for item in proposed_items
+            ]
+            added = changes.get("added_items", [])
+            updated = changes.get("updated_items", [])
+            removed = changes.get("removed_items", [])
+            if added:
+                summary_parts.append(f"added: {', '.join(added)}")
+            if updated:
+                summary_parts.append(f"updated: {', '.join(str(item) for item in updated)}")
+            if removed:
+                summary_parts.append(f"removed: {', '.join(removed)}")
+
+        updated_invoice = invoice_service.update_invoice(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+            data=InvoiceUpdateWithItems(invoice=update_data, items=items),
+        )
+
+        if proposed_items is not None:
+            summary_parts.append(f"new total: ₹{float(updated_invoice.total_amount):,.0f}")
+
+        display_number = invoice_number or invoice.invoice_number
+        return {
+            "invoice_id": str(updated_invoice.id),
+            "invoice_number": display_number,
+            "summary": (
+                f"Invoice {display_number} updated — {', '.join(summary_parts)}"
+                if summary_parts
+                else f"Invoice {display_number} updated"
+            ),
         }
 
     def _confirm_add_lead_note(self, confirmed_data: dict[str, Any]) -> dict[str, Any]:

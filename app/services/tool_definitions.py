@@ -486,6 +486,226 @@ TOOL_PREPARE_INVOICE = {
     },
 }
 
+TOOL_QUERY_INVOICES = {
+    "type": "function",
+    "function": {
+        "name": "query_invoices",
+        "description": (
+            "Query invoices with flexible filters and return both invoice results and billing aggregates. "
+            "Use for listing invoices by period, payment status, customer, lead, amount range, or search. "
+            "Combine filters from the current conversation when the user drills down further."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "period": {
+                    "type": "string",
+                    "description": "Date range preset for invoice issued_date.",
+                    "enum": [
+                        "today",
+                        "this_week",
+                        "this_month",
+                        "last_month",
+                        "last_2_months",
+                        "last_quarter",
+                        "this_year",
+                        "last_30_days",
+                        "last_90_days",
+                        "custom",
+                    ],
+                },
+                "from_date": {
+                    "type": "string",
+                    "description": "Start date in YYYY-MM-DD when period=custom.",
+                },
+                "to_date": {
+                    "type": "string",
+                    "description": "End date in YYYY-MM-DD when period=custom.",
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Filter by invoice status.",
+                    "enum": ["draft", "sent", "paid", "partial", "overdue"],
+                },
+                "customer_id": {
+                    "type": "string",
+                    "description": "Filter by customer UUID.",
+                },
+                "lead_id": {
+                    "type": "string",
+                    "description": "Filter by lead UUID.",
+                },
+                "min_amount": {
+                    "type": "number",
+                    "description": "Minimum invoice total amount.",
+                },
+                "max_amount": {
+                    "type": "number",
+                    "description": "Maximum invoice total amount.",
+                },
+                "payment_status": {
+                    "type": "string",
+                    "description": "Computed payment state based on amount paid versus invoice total.",
+                    "enum": ["unpaid", "partially_paid", "fully_paid"],
+                },
+                "search": {
+                    "type": "string",
+                    "description": "Search in invoice number, customer name, lead title, or line item names.",
+                },
+                "sort_by": {
+                    "type": "string",
+                    "description": "How to sort results.",
+                    "enum": ["date", "amount", "due_date", "outstanding"],
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of results to return. Default 20.",
+                },
+            },
+            "required": [],
+        },
+    },
+}
+
+TOOL_UPDATE_INVOICE = {
+    "type": "function",
+    "function": {
+        "name": "update_invoice",
+        "description": (
+            "Prepare an invoice update for user review. Supports marking a draft invoice as sent, "
+            "changing due date, and editing draft invoice line items. Use when the user wants to add, "
+            "change, or remove invoice items or update invoice due date/status."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "invoice_id": {
+                    "type": "string",
+                    "description": "UUID of the invoice to update.",
+                },
+                "invoice_number": {
+                    "type": "string",
+                    "description": "Invoice number for display.",
+                },
+                "new_status": {
+                    "type": "string",
+                    "description": "New status to set. Only draft invoices can be marked as sent manually.",
+                    "enum": ["sent"],
+                },
+                "new_due_date": {
+                    "type": "string",
+                    "description": "New due date in YYYY-MM-DD format.",
+                },
+                "add_items": {
+                    "type": "array",
+                    "description": "New line items to add to the invoice.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "catalog_item_id": {"type": "string"},
+                            "name": {"type": "string"},
+                            "description": {"type": "string"},
+                            "quantity": {"type": "number"},
+                            "rate": {"type": "number"},
+                            "unit": {"type": "string"},
+                            "gst_percent": {"type": "number"},
+                        },
+                        "required": ["name", "quantity", "rate"],
+                    },
+                },
+                "update_items": {
+                    "type": "array",
+                    "description": "Existing items to modify, matched by item_name or item_index.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "item_name": {"type": "string"},
+                            "item_index": {"type": "integer"},
+                            "new_rate": {"type": "number"},
+                            "new_quantity": {"type": "number"},
+                            "new_name": {"type": "string"},
+                            "new_unit": {"type": "string"},
+                            "new_gst_percent": {"type": "number"},
+                            "new_description": {"type": "string"},
+                        },
+                    },
+                },
+                "remove_item_names": {
+                    "type": "array",
+                    "description": "Names of items to remove from the invoice.",
+                    "items": {"type": "string"},
+                },
+            },
+            "required": ["invoice_id"],
+        },
+    },
+}
+
+TOOL_GET_BILLING_ANALYTICS = {
+    "type": "function",
+    "function": {
+        "name": "get_billing_analytics",
+        "description": (
+            "Get invoice and revenue analytics for the business, with optional comparison and grouping. "
+            "Use for billing summary, average invoice value, top customers, top items, monthly breakdown, or status mix."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "period": {
+                    "type": "string",
+                    "description": "Time period for analysis.",
+                    "enum": [
+                        "this_month",
+                        "last_month",
+                        "this_quarter",
+                        "last_quarter",
+                        "last_3_months",
+                        "last_6_months",
+                        "this_year",
+                    ],
+                },
+                "compare_with": {
+                    "type": "string",
+                    "description": "Optional comparison period.",
+                    "enum": ["previous_period"],
+                },
+                "group_by": {
+                    "type": "string",
+                    "description": "Optional grouping dimension.",
+                    "enum": ["customer", "item", "month", "status"],
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum grouped rows to return. Default 10.",
+                },
+            },
+            "required": ["period"],
+        },
+    },
+}
+
+TOOL_GET_INVOICE_PAYMENT_HISTORY = {
+    "type": "function",
+    "function": {
+        "name": "get_invoice_payment_history",
+        "description": (
+            "Get the payment history for a specific invoice, including dates, amounts, methods, and references. "
+            "Use when the user asks when payments were received on an invoice or asks for payment history."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "invoice_id": {
+                    "type": "string",
+                    "description": "UUID of the invoice.",
+                }
+            },
+            "required": ["invoice_id"],
+        },
+    },
+}
+
 TOOL_GENERATE_INVOICE_PDF = {
     "type": "function",
     "function": {
@@ -794,6 +1014,8 @@ DASHBOARD_TOOLS = [
     TOOL_GET_UNPAID_INVOICE_SUMMARY,
     TOOL_GET_RECENT_PAYMENTS,
     TOOL_GET_REVENUE_SUMMARY,
+    TOOL_QUERY_INVOICES,
+    TOOL_GET_BILLING_ANALYTICS,
     TOOL_PREPARE_INVOICE,
     TOOL_GENERATE_INVOICE_PDF,
     TOOL_SEND_PAYMENT_REMINDER,
@@ -807,6 +1029,9 @@ DASHBOARD_TOOLS = [
 CUSTOMER_TOOLS = [
     TOOL_GET_CUSTOMER_OUTSTANDING,
     TOOL_LIST_CUSTOMER_INVOICES,
+    TOOL_QUERY_INVOICES,
+    TOOL_UPDATE_INVOICE,
+    TOOL_GET_INVOICE_PAYMENT_HISTORY,
     TOOL_LIST_CUSTOMER_PAYMENTS,
     TOOL_SEARCH_LEAD,
     TOOL_CREATE_LEAD,
@@ -838,6 +1063,9 @@ LEAD_TOOLS = [
     TOOL_GET_CUSTOMER_OUTSTANDING,
     TOOL_GET_CATALOG_ITEMS,
     TOOL_LIST_CUSTOMER_INVOICES,
+    TOOL_QUERY_INVOICES,
+    TOOL_UPDATE_INVOICE,
+    TOOL_GET_INVOICE_PAYMENT_HISTORY,
     TOOL_LIST_LEADS_BY_STAGE,
     TOOL_GET_INVOICE_DETAILS,
     TOOL_RECORD_PAYMENT,
@@ -855,6 +1083,10 @@ GLOBAL_TOOLS = [
     TOOL_CREATE_LEAD,
     TOOL_GET_CATALOG_ITEMS,
     TOOL_LIST_CUSTOMER_INVOICES,
+    TOOL_QUERY_INVOICES,
+    TOOL_UPDATE_INVOICE,
+    TOOL_GET_BILLING_ANALYTICS,
+    TOOL_GET_INVOICE_PAYMENT_HISTORY,
     TOOL_LIST_LEADS_BY_STAGE,
     TOOL_GET_PIPELINE_SUMMARY,
     TOOL_GET_INVOICE_DETAILS,
