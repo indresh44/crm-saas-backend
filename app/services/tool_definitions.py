@@ -78,7 +78,7 @@ TOOL_LIST_CUSTOMER_INVOICES = {
                 "status": {
                     "type": "string",
                     "description": "Optional invoice status filter.",
-                    "enum": ["paid", "partial", "sent", "overdue", "draft"],
+                    "enum": ["paid", "partial", "sent", "approved", "draft"],
                 },
             },
             "required": [],
@@ -207,8 +207,8 @@ TOOL_CREATE_LEAD = {
                 },
                 "source": {
                     "type": "string",
-                    "description": "How the lead came in.",
-                    "enum": ["walk_in", "referral", "whatsapp", "social_media", "website", "other"],
+                    "description": "How the lead came in. Use 'instagram' for Instagram/social media leads, 'justdial' for JustDial leads.",
+                    "enum": ["walk_in", "whatsapp", "referral", "instagram", "justdial", "website", "other"],
                 },
                 "estimated_value": {
                     "type": "number",
@@ -525,7 +525,7 @@ TOOL_QUERY_INVOICES = {
                 "status": {
                     "type": "string",
                     "description": "Filter by invoice status.",
-                    "enum": ["draft", "sent", "paid", "partial", "overdue"],
+                    "enum": ["draft", "sent", "approved", "paid", "partial"],
                 },
                 "customer_id": {
                     "type": "string",
@@ -572,9 +572,11 @@ TOOL_UPDATE_INVOICE = {
     "function": {
         "name": "update_invoice",
         "description": (
-            "Prepare an invoice update for user review. Supports marking a draft invoice as sent, "
-            "changing due date, and editing draft invoice line items. Use when the user wants to add, "
-            "change, or remove invoice items or update invoice due date/status."
+            "Prepare an invoice update for user review. Use when the user wants to: mark an estimate as sent, "
+            "mark an estimate/invoice as approved (client has approved the quote), change due date, "
+            "or edit draft invoice line items. "
+            "Approve flow: 'Rajesh ka estimate approve karo' → set new_status='approved'. "
+            "Sent flow: 'INV-042 sent mark karo' → set new_status='sent'."
         ),
         "parameters": {
             "type": "object",
@@ -589,8 +591,8 @@ TOOL_UPDATE_INVOICE = {
                 },
                 "new_status": {
                     "type": "string",
-                    "description": "New status to set. Only draft invoices can be marked as sent manually.",
-                    "enum": ["sent"],
+                    "description": "New status to set. Use 'sent' to mark draft as sent. Use 'approved' when client approves the estimate — this converts it to a tax invoice.",
+                    "enum": ["sent", "approved"],
                 },
                 "new_due_date": {
                     "type": "string",

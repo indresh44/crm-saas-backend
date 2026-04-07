@@ -282,6 +282,11 @@
     background: #f1f1f1;
     color: #666;
   }
+
+  .status-approved {
+    background: #f0fdfa;
+    color: #0f766e;
+  }
 </style>
 </head>
 <body>
@@ -307,7 +312,7 @@
     </div>
     <div>
       <div class="invoice-title">
-        {% if business.gst_number %}Tax Invoice{% else %}Invoice{% endif %}
+        {{ pdf_heading }}
       </div>
       <div class="invoice-meta">
         <strong>{{ invoice.invoice_number }}</strong><br>
@@ -322,20 +327,32 @@
     <div class="bill-to-label">Bill To</div>
     <div class="bill-to-name">{{ customer.name }}</div>
     <div class="bill-to-details">
+      {% if customer.address %}{{ customer.address }}<br>{% endif %}
+      {% if customer.city %}{{ customer.city }}{% endif %}
+      {% if customer.state %}, {{ customer.state }}{% endif %}
+      {% if customer.city or customer.state %}<br>{% endif %}
       {% if customer.phone %}Phone: {{ customer.phone }}{% endif %}
-      {% if customer.email %}<br>Email: {{ customer.email }}{% endif %}
+      {% if customer.phone and customer.email %} | {% endif %}
+      {% if customer.email %}Email: {{ customer.email }}{% endif %}
+      {% if customer.gst_number %}<br><strong>GSTIN:</strong> {{ customer.gst_number }}{% endif %}
     </div>
+    {% if place_of_supply %}
+    <div style="margin-top:4pt; font-size:8.5pt; color:#555;">
+      <strong>Place of Supply:</strong> {{ place_of_supply }}
+    </div>
+    {% endif %}
   </div>
 
   <table class="items-table">
     <thead>
       <tr>
-        <th style="width: 5%">#</th>
-        <th style="width: 35%">Item</th>
-        <th style="width: 10%">Unit</th>
-        <th class="right" style="width: 8%">Qty</th>
-        <th class="right" style="width: 14%">Rate</th>
-        <th class="right" style="width: 8%">GST</th>
+        <th style="width: 4%">#</th>
+        <th style="width: 32%">Item</th>
+        <th style="width: 9%">SAC</th>
+        <th style="width: 9%">Unit</th>
+        <th class="right" style="width: 7%">Qty</th>
+        <th class="right" style="width: 12%">Rate</th>
+        <th class="right" style="width: 7%">GST</th>
         <th class="right" style="width: 20%">Amount</th>
       </tr>
     </thead>
@@ -347,6 +364,7 @@
           <div class="item-name">{{ item.name }}</div>
           {% if item.description %}<div class="item-desc">{{ item.description }}</div>{% endif %}
         </td>
+        <td style="font-size:8pt; color:#555;">{{ item.sac_code or "-" }}</td>
         <td>{{ item.unit or "-" }}</td>
         <td class="right">{{ item.quantity }}</td>
         <td class="right">{{ format_inr(item.rate) }}</td>

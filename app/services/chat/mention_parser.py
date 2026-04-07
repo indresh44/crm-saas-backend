@@ -93,6 +93,7 @@ def resolve_mentions(
                             "unit": item.custom_unit or item.unit.value,
                             "gst_percent": float(item.gst_percent),
                             "description": item.description,
+                            "sac_code": item.sac_code,
                         },
                     )
                 )
@@ -144,12 +145,14 @@ def _build_mention_context(mentions: list[ResolvedMention]) -> str:
             )
         elif mention.type == "item":
             description = mention.data.get("description") or "N/A"
+            sac = mention.data.get("sac_code") or "N/A"
             lines.append(
                 f"- Catalog Item: {mention.data['name']} "
                 f"(ID: {mention.data['catalog_item_id']}, "
                 f"Rate: Rs. {mention.data['default_rate']}, "
                 f"Unit: {mention.data['unit']}, "
                 f"GST: {mention.data['gst_percent']}%, "
+                f"SAC: {sac}, "
                 f"Description: {description})"
             )
         elif mention.type == "invoice":

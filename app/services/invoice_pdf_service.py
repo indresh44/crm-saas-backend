@@ -108,13 +108,21 @@ def generate_invoice_pdf(
                 "quantity": item.quantity,
                 "rate": item.unit_price,
                 "gst_percent": item.gst_percent,
+                "sac_code": item.sac_code or business.default_sac_code,
                 "line_total": line_total,
                 "gst_amount": gst_amount,
                 "line_total_with_tax": line_total + gst_amount,
             }
         )
 
-    is_same_state = True
+    # Determine intra vs inter state from business and customer state fields
+    business_state = (business.state or "").strip().lower()
+    customer_state = (customer.state or "").strip().lower() if hasattr(customer, "state") else ""
+    is_same_state = bool(business_state and customer_state and business_state == customer_state)
+    # Default to intra-state (CGST+SGST) when either state is unknown
+    if not business_state or not customer_state:
+        is_same_state = True
+
     cgst_total = tax_total / Decimal("2")
     sgst_total = tax_total / Decimal("2")
 
@@ -138,6 +146,13 @@ def generate_invoice_pdf(
     amount_paid = payments_total
     balance_due = total_amount - amount_paid
     amount_in_words = amount_to_words_inr(float(balance_due if amount_paid > 0 else total_amount))
+
+    # PDF heading: ESTIMATE for draft/sent; TAX INVOICE for approved/partial/paid
+    from app.models.enums import InvoiceStatus
+    is_tax_invoice = invoice.status in {InvoiceStatus.APPROVED, InvoiceStatus.PARTIAL, InvoiceStatus.PAID}
+    pdf_heading = "TAX INVOICE" if is_tax_invoice else "ESTIMATE"
+
+    place_of_supply = getattr(customer, "state", None) or ""
 
     jinja_env = _get_template_environment()
     template = jinja_env.get_template("invoice_pdf.html")
@@ -163,6 +178,8 @@ def generate_invoice_pdf(
         balance_due=balance_due,
         amount_in_words=amount_in_words,
         has_payment_details=has_payment_details,
+        pdf_heading=pdf_heading,
+        place_of_supply=place_of_supply,
         format_inr=format_inr,
     )
 

@@ -47,9 +47,19 @@ class MeetingStatus(str, Enum):
 class InvoiceStatus(str, Enum):
     DRAFT = "draft"
     SENT = "sent"
-    PAID = "paid"
+    APPROVED = "approved"
     PARTIAL = "partial"
-    OVERDUE = "overdue"
+    PAID = "paid"
+
+
+class LeadSource(str, Enum):
+    WALK_IN = "walk_in"
+    WHATSAPP = "whatsapp"
+    REFERRAL = "referral"
+    INSTAGRAM = "instagram"
+    JUSTDIAL = "justdial"
+    WEBSITE = "website"
+    OTHER = "other"
 
 
 class PaymentMethod(str, Enum):

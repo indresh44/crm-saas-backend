@@ -1,4 +1,3 @@
-from datetime import date
 from decimal import Decimal
 from typing import List
 from uuid import UUID
@@ -106,10 +105,6 @@ def _recalculate_invoice_status(session: Session, invoice: Invoice) -> None:
         invoice.status = InvoiceStatus.PAID
     elif total_paid > 0:
         invoice.status = InvoiceStatus.PARTIAL
-    else:
-        invoice.status = InvoiceStatus.SENT
-
-    if invoice.status != InvoiceStatus.PAID and invoice.due_date < date.today():
-        invoice.status = InvoiceStatus.OVERDUE
+    # else: leave status unchanged (draft/sent/approved — payment doesn't reset it)
 
     session.add(invoice)

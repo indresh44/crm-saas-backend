@@ -52,6 +52,7 @@ def _build_invoice_items(
             unit_price=item["unit_price"],
             gst_percent=item["gst_percent"],
             amount=item["amount"],
+            sac_code=item.get("sac_code"),
         )
         for item in items
     ]
@@ -178,10 +179,10 @@ def update_invoice(
 
     if requested_status is not None:
         allowed_transitions = {
-            InvoiceStatus.DRAFT: {InvoiceStatus.SENT},
-            InvoiceStatus.SENT: set(),
+            InvoiceStatus.DRAFT: {InvoiceStatus.SENT, InvoiceStatus.APPROVED},
+            InvoiceStatus.SENT: {InvoiceStatus.APPROVED},
             InvoiceStatus.PARTIAL: set(),
-            InvoiceStatus.OVERDUE: set(),
+            InvoiceStatus.APPROVED: set(),
         }
         if requested_status not in allowed_transitions.get(invoice.status, set()):
             raise HTTPException(

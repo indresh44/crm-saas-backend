@@ -411,6 +411,7 @@ class ToolExecutor:
                         "unit": item.custom_unit or item.unit.value,
                         "default_rate": self._decimal_to_float(item.default_rate),
                         "gst_percent": self._decimal_to_float(item.gst_percent),
+                        "sac_code": item.sac_code,
                     }
                     for item in items
                 ],
@@ -578,6 +579,7 @@ class ToolExecutor:
                     "rate": float(item.unit_price),
                     "unit": item.unit or "piece",
                     "gst_percent": float(item.gst_percent),
+                    "sac_code": item.sac_code,
                     "line_total": float(item.amount + ((item.amount * item.gst_percent) / Decimal("100"))),
                 }
             )
@@ -585,8 +587,15 @@ class ToolExecutor:
         changes: dict[str, Any] = {}
         new_status = str(args.get("new_status") or "").strip() or None
         if new_status:
-            if invoice.status != InvoiceStatus.DRAFT or new_status != InvoiceStatus.SENT.value:
-                raise ValueError("Only draft invoices can be marked as sent")
+            allowed_transitions = {
+                InvoiceStatus.DRAFT: {InvoiceStatus.SENT.value, InvoiceStatus.APPROVED.value},
+                InvoiceStatus.SENT: {InvoiceStatus.APPROVED.value},
+            }
+            if new_status not in allowed_transitions.get(invoice.status, set()):
+                raise ValueError(
+                    f"Cannot change status from '{invoice.status.value}' to '{new_status}'. "
+                    f"Use 'approved' when client approves the estimate."
+                )
             changes["new_status"] = new_status
 
         new_due_date = str(args.get("new_due_date") or "").strip() or None
@@ -1155,6 +1164,7 @@ class ToolExecutor:
                     "quantity": float(quantity),
                     "rate": float(rate),
                     "gst_percent": float(gst_percent),
+                    "sac_code": item.get("sac_code"),
                     "line_total": float(line_total.quantize(Decimal("0.01"))),
                     "sort_order": index + 1,
                 }

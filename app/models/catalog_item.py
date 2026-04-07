@@ -20,6 +20,7 @@ class CatalogItemBase(SQLModel):
     custom_unit: Optional[str] = Field(default=None, max_length=50)
     default_rate: Decimal = Field(decimal_places=2, max_digits=12)
     gst_percent: Decimal = Field(default=Decimal("18.00"), decimal_places=2, max_digits=5)
+    sac_code: Optional[str] = Field(default=None, max_length=20)
 
 
 class CatalogItemCreate(SQLModel):
@@ -29,6 +30,7 @@ class CatalogItemCreate(SQLModel):
     custom_unit: Optional[str] = Field(default=None, max_length=50)
     default_rate: Decimal = Field(decimal_places=2, max_digits=12)
     gst_percent: Decimal = Field(default=Decimal("18.00"), decimal_places=2, max_digits=5)
+    sac_code: Optional[str] = Field(default=None, max_length=20)
 
 
 class CatalogItemUpdate(SQLModel):
@@ -38,6 +40,7 @@ class CatalogItemUpdate(SQLModel):
     custom_unit: Optional[str] = Field(default=None, max_length=50)
     default_rate: Optional[Decimal] = Field(default=None, decimal_places=2, max_digits=12)
     gst_percent: Optional[Decimal] = Field(default=None, decimal_places=2, max_digits=5)
+    sac_code: Optional[str] = Field(default=None, max_length=20)
     is_active: Optional[bool] = None
 
 

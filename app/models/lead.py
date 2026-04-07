@@ -7,11 +7,15 @@ from sqlalchemy import Enum as SaEnum, Index
 from sqlmodel import Field, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin, UpdatedAtMixin
-from app.models.enums import LeadActivityType
+from app.models.enums import LeadActivityType, LeadSource
 
 
 def _lead_activity_type_values(enum_class: type[LeadActivityType]) -> list[str]:
     return [activity_type.value for activity_type in enum_class]
+
+
+def _lead_source_values(enum_class: type[LeadSource]) -> list[str]:
+    return [s.value for s in enum_class]
 
 
 class LeadFields(SQLModel):
@@ -20,7 +24,7 @@ class LeadFields(SQLModel):
     customer_id: Optional[uuid.UUID] = None
     stage_id: uuid.UUID
     title: str
-    source: Optional[str] = None
+    source: Optional[LeadSource] = None
     service_date: Optional[date] = None
     follow_up_at: Optional[datetime] = Field(default=None, nullable=True)
     estimated_value: Optional[Decimal] = Field(default=None, decimal_places=2, max_digits=12)
@@ -48,7 +52,7 @@ class LeadRead(LeadBase):
 
 class LeadUpdate(SQLModel):
     title: Optional[str] = None
-    source: Optional[str] = None
+    source: Optional[LeadSource] = None
     service_date: Optional[date] = None
     follow_up_at: Optional[datetime] = Field(default=None, nullable=True)
     estimated_value: Optional[Decimal] = Field(default=None, decimal_places=2, max_digits=12)
@@ -68,6 +72,16 @@ class Lead(LeadBase, UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, table=
     customer_id: Optional[uuid.UUID] = Field(default=None, foreign_key="customers.id")
     stage_id: uuid.UUID = Field(foreign_key="pipeline_stages.id")
     assigned_to: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id")
+    source: Optional[LeadSource] = Field(
+        default=None,
+        sa_type=SaEnum(
+            LeadSource,
+            name="lead_source",
+            create_constraint=False,
+            values_callable=_lead_source_values,
+        ),
+        nullable=True,
+    )
 
 
 class LeadActivityBase(SQLModel):

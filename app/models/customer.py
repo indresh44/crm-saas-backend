@@ -16,6 +16,10 @@ class CustomerFields(SQLModel):
     phone: str = Field(min_length=1)
     email: Optional[str] = None
     notes: Optional[str] = None
+    address: Optional[str] = Field(default=None, max_length=500)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=100)
+    gst_number: Optional[str] = Field(default=None, max_length=15)
 
 
 class CustomerBase(CustomerFields):
@@ -73,6 +77,10 @@ class CustomerUpdate(SQLModel):
     phone: Optional[str] = Field(default=None, min_length=1)
     email: Optional[str] = None
     notes: Optional[str] = None
+    address: Optional[str] = Field(default=None, max_length=500)
+    city: Optional[str] = Field(default=None, max_length=100)
+    state: Optional[str] = Field(default=None, max_length=100)
+    gst_number: Optional[str] = Field(default=None, max_length=15)
 
 
 class Customer(CustomerBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):

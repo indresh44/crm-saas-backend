@@ -32,6 +32,7 @@ class BusinessBase(SQLModel):
     upi_id: Optional[str] = Field(default=None, max_length=100, nullable=True)
     invoice_notes: Optional[str] = Field(default=None, max_length=500, nullable=True)
     invoice_footer: Optional[str] = Field(default=None, max_length=500, nullable=True)
+    default_sac_code: Optional[str] = Field(default=None, max_length=20, nullable=True)
 
 
 class BusinessCreate(BusinessBase):
@@ -71,6 +72,7 @@ class BusinessSettingsUpdate(SQLModel):
     upi_id: str | None = None
     invoice_notes: str | None = None
     invoice_footer: str | None = None
+    default_sac_code: str | None = None
 
     @field_validator("gst_number")
     @classmethod
@@ -136,4 +138,5 @@ class BusinessSettingsRead(SQLModel):
     upi_id: str | None
     invoice_notes: str | None
     invoice_footer: str | None
+    default_sac_code: str | None
     created_at: datetime

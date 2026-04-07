@@ -29,6 +29,7 @@ class InvoiceItemCreate(SQLModel):
     quantity: Decimal = Field(default=Decimal("1"), decimal_places=2, max_digits=12)
     unit_price: Decimal = Field(decimal_places=2, max_digits=12)
     gst_percent: Decimal = Field(default=Decimal("0.0"), decimal_places=2, max_digits=5)
+    sac_code: str | None = None
 
     def build_model(self, invoice_id: uuid.UUID) -> "InvoiceItem":
         if self.gst_percent not in ALLOWED_GST_PERCENTS:
@@ -43,6 +44,7 @@ class InvoiceItemCreate(SQLModel):
             unit_price=self.unit_price,
             gst_percent=self.gst_percent,
             amount=self.quantity * self.unit_price,
+            sac_code=self.sac_code,
         )
 
 
@@ -57,6 +59,7 @@ class InvoiceItemRead(SQLModel):
     unit_price: Decimal
     gst_percent: Decimal
     amount: Decimal
+    sac_code: str | None
     created_at: CreatedAtMixin.__annotations__["created_at"]
 
     @field_serializer("quantity", "unit_price", "gst_percent", "amount", when_used="json")
@@ -84,5 +87,6 @@ class InvoiceItem(UUIDPrimaryKeyMixin, CreatedAtMixin, SQLModel, table=True):
     unit_price: Decimal = Field(decimal_places=2, max_digits=12)
     gst_percent: Decimal = Field(default=Decimal("0.0"), decimal_places=2, max_digits=5)
     amount: Decimal = Field(decimal_places=2, max_digits=12)
+    sac_code: str | None = Field(default=None, max_length=20, nullable=True)
 
     invoice: "Invoice" = Relationship(back_populates="items")
