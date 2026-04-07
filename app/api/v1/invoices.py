@@ -4,7 +4,9 @@ from datetime import date
 
 from decimal import Decimal
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlmodel import Session
 
 from app.core.database import get_session
@@ -175,3 +177,65 @@ def get_invoice_pdf(
         payments_total=payments_total,
     )
     return {"pdf_url": pdf_url}
+
+
+@router.get("/invoices/{invoice_id}/pdf/download")
+async def download_invoice_pdf(
+    invoice_id: UUID,
+    force: bool = Query(default=False),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    """Stream the actual PDF bytes (avoids CORS issues with R2)."""
+    invoice = get_invoice_with_items(
+        session=session,
+        business_id=current_user.business_id,
+        invoice_id=invoice_id,
+    )
+    if invoice is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+
+    pdf_url = invoice.pdf_url
+    if not pdf_url or force:
+        business = get_business_by_id(session, current_user.business_id)
+        if business is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Business not found")
+
+        customer = None
+        if invoice.lead_id is not None:
+            lead = get_lead_by_id(session, current_user.business_id, invoice.lead_id)
+            if lead and lead.customer_id:
+                customer = get_customer_by_id(session, current_user.business_id, lead.customer_id)
+
+        if customer is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot generate PDF: customer not found for this invoice",
+            )
+
+        payments = list_payments_for_invoice(session, current_user.business_id, invoice.id)
+        payments_total = sum((payment.amount for payment in payments), Decimal("0"))
+        pdf_url = generate_invoice_pdf(
+            session=session,
+            invoice=invoice,
+            business=business,
+            customer=customer,
+            items=invoice.items,
+            payments_total=payments_total,
+        )
+
+    async with httpx.AsyncClient() as client:
+        r2_response = await client.get(pdf_url)
+
+    if r2_response.status_code != 200:
+        raise HTTPException(status_code=502, detail="Failed to fetch PDF from storage")
+
+    filename = f"{invoice.invoice_number}.pdf"
+    return StreamingResponse(
+        iter([r2_response.content]),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
