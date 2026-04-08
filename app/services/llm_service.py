@@ -104,7 +104,7 @@ class LLMService:
         tools: list[dict[str, Any]] | None = None,
         tool_executor: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
         model: str | None = None,
-        max_tool_rounds: int = 3,
+        max_tool_rounds: int = 5,
     ) -> LLMResponse:
         working_messages = list(messages)
         total_input_tokens = 0

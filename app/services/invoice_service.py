@@ -225,6 +225,7 @@ def list_invoices(
     lead_id: UUID | None = None,
     limit: int = 20,
     offset: int = 0,
+    exclude_draft: bool = False,
 ) -> tuple[list[InvoiceListItem], int, dict[str, Decimal | int]]:
     if lead_id is not None:
         lead = get_lead_by_id(
@@ -246,6 +247,7 @@ def list_invoices(
         from_date=from_date,
         to_date=to_date,
         lead_id=lead_id,
+        exclude_draft=exclude_draft,
         limit=limit,
         offset=offset,
     )
@@ -277,6 +279,7 @@ def list_customer_invoices(
     status: InvoiceStatus | None = None,
     limit: int = 20,
     offset: int = 0,
+    exclude_draft: bool = False,
 ) -> tuple[list[InvoiceListItem], int, dict[str, Decimal | int]]:
     return list_invoices(
         session=session,
@@ -285,6 +288,7 @@ def list_customer_invoices(
         status=status,
         limit=limit,
         offset=offset,
+        exclude_draft=exclude_draft,
     )
 
 

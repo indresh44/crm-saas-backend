@@ -738,6 +738,7 @@ TOOL_GET_INVOICE_DETAILS = {
             "Get full details of a specific invoice including line items, payment status, "
             "and amounts. Use when the user asks about a specific invoice, wants to see invoice "
             "details, check payment status of an invoice, or references an invoice by number or ID."
+            "it also contains customer name and customer phone number"
         ),
         "parameters": {
             "type": "object",
@@ -962,6 +963,7 @@ TOOL_SEND_PAYMENT_REMINDER = {
                 "customer_phone": {"type": "string", "description": "Customer phone number."},
                 "outstanding_amount": {"type": "number", "description": "Total outstanding amount."},
                 "invoice_numbers": {"type": "string", "description": "Comma-separated unpaid invoice numbers."},
+                "invoice_id": {"type": "string", "description": "UUID of the invoice for the reminder. Used to generate the invoice link."},
                 "message_tone": {
                     "type": "string",
                     "description": "Tone of the reminder.",

@@ -143,6 +143,7 @@ def list_invoices_enriched(
     lead_id: UUID | None = None,
     limit: int = 20,
     offset: int = 0,
+    exclude_draft: bool = False,
 ) -> tuple[list[InvoiceListItem], int, dict[str, Decimal | int]]:
     payment_totals_sq = (
         select(
@@ -173,6 +174,8 @@ def list_invoices_enriched(
 
     if status is not None:
         statement = statement.where(Invoice.status == status)
+    elif exclude_draft:
+        statement = statement.where(Invoice.status != InvoiceStatus.DRAFT)
 
     if from_date is not None:
         statement = statement.where(Invoice.issued_date >= from_date)

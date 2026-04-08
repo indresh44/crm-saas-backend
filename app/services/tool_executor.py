@@ -217,14 +217,16 @@ class ToolExecutor:
     async def _list_customer_invoices(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
         customer_id = self._require_uuid(args, "customer_id")
         status = self._optional_invoice_status(args.get("status"))
-        invoices, total, summary = invoice_service.list_customer_invoices(
+        invoices, _total, summary = invoice_service.list_customer_invoices(
             session=self.session,
             current_user=self.current_user,
             customer_id=customer_id,
             status=status,
             limit=20,
             offset=0,
+            exclude_draft=status is None,
         )
+        visible = invoices
         return {
             "data": {
                 "invoices": [
@@ -237,9 +239,9 @@ class ToolExecutor:
                         "amount_paid": self._decimal_to_float(invoice.amount_paid),
                         "status": invoice.status.value,
                     }
-                    for invoice in invoices
+                    for invoice in visible
                 ],
-                "count": total,
+                "count": len(visible),
                 "summary": self._serialize_decimals(summary),
             }
         }
@@ -443,6 +445,7 @@ class ToolExecutor:
             lead_id=lead_id,
             limit=fetch_limit,
             offset=0,
+            exclude_draft=status_filter is None,
         )
 
         min_amount = self._optional_decimal(args.get("min_amount"))
@@ -1236,7 +1239,7 @@ class ToolExecutor:
             invoice_id=invoice_id,
         )
 
-        customer_name, lead_title = self._get_invoice_display_context(invoice.lead_id)
+        customer_name,customer_phone, lead_title = self._get_invoice_display_context(invoice.lead_id)
         amount_paid = sum((payment.amount for payment in payments), Decimal("0"))
         balance_due = max(invoice.total_amount - amount_paid, Decimal("0"))
         item_lines = [
@@ -1256,6 +1259,7 @@ class ToolExecutor:
                 "issued_date": invoice.issued_date.isoformat(),
                 "due_date": invoice.due_date.isoformat(),
                 "customer_name": customer_name,
+                "customer_phone": customer_phone,
                 "lead_title": lead_title,
                 "subtotal": self._decimal_to_float(invoice.subtotal) or 0,
                 "tax_total": self._decimal_to_float(invoice.tax_total) or 0,
@@ -1277,7 +1281,7 @@ class ToolExecutor:
             current_user=self.current_user,
             invoice_id=invoice_id,
         )
-        customer_name, _ = self._get_invoice_display_context(invoice.lead_id)
+        customer_name, customer_phone, _ = self._get_invoice_display_context(invoice.lead_id)
         payments = payment_service.list_payments(
             session=self.session,
             current_user=self.current_user,
@@ -1501,10 +1505,11 @@ class ToolExecutor:
             total += amount
             try:
                 invoice = invoice_service.get_invoice(self.session, self.current_user, payment.invoice_id)
-                customer_name, _ = self._get_invoice_display_context(invoice.lead_id)
+                customer_name, customer_phone, _ = self._get_invoice_display_context(invoice.lead_id)
                 invoice_number = invoice.invoice_number
             except HTTPException:
                 customer_name = ""
+                customer_phone = ""
                 invoice_number = ""
             lines.append(
                 f"- ₹{amount:,.0f} · {payment.payment_method.value} · {customer_name or 'Unknown'} "
@@ -1571,13 +1576,21 @@ class ToolExecutor:
         customer_phone = str(args.get("customer_phone") or "")
         outstanding = float(args.get("outstanding_amount", 0) or 0)
         invoice_numbers = str(args.get("invoice_numbers") or "")
+        invoice_id = str(args.get("invoice_id") or "")
         tone = str(args.get("message_tone") or "polite")
+
+        invoice_link = ""
+        if invoice_id and invoice_numbers:
+            url = f"https://sellnsettle.com/invoices/{invoice_id}/{invoice_numbers.split(',')[0].strip()}.pdf"
+            invoice_link = f"\n\nInvoice: {url}"
+
         if tone == "firm":
             message = (
                 f"Namaste {customer_name} ji,\n\n"
                 f"Aapke account mein ₹{outstanding:,.0f} ka outstanding amount hai"
                 f"{' (Invoice: ' + invoice_numbers + ')' if invoice_numbers else ''}.\n\n"
-                f"Kripya jaldi se jaldi payment karein. Agar koi issue hai toh humse baat karein.\n\n"
+                f"Kripya jaldi se jaldi payment karein. Agar koi issue hai toh humse baat karein."
+                f"{invoice_link}\n\n"
                 f"Dhanyavaad."
             )
         elif tone == "urgent":
@@ -1585,7 +1598,8 @@ class ToolExecutor:
                 f"{customer_name} ji,\n\n"
                 f"Aapka ₹{outstanding:,.0f} ka payment kaafi din se pending hai"
                 f"{' (' + invoice_numbers + ')' if invoice_numbers else ''}.\n\n"
-                f"Kripya aaj hi payment karein. Yeh final reminder hai.\n\n"
+                f"Kripya aaj hi payment karein. Yeh final reminder hai."
+                f"{invoice_link}\n\n"
                 f"Dhanyavaad."
             )
         else:
@@ -1593,7 +1607,8 @@ class ToolExecutor:
                 f"Namaste {customer_name} ji,\n\n"
                 f"Yeh ek friendly reminder hai ki aapka ₹{outstanding:,.0f} ka payment pending hai"
                 f"{' (' + invoice_numbers + ')' if invoice_numbers else ''}.\n\n"
-                f"Agar payment ho chuki hai toh please ignore karein.\n\n"
+                f"Agar payment ho chuki hai toh please ignore karein."
+                f"{invoice_link}\n\n"
                 f"Dhanyavaad!"
             )
         payload = {
@@ -1601,6 +1616,7 @@ class ToolExecutor:
             "customer_phone": customer_phone,
             "outstanding_amount": outstanding,
             "invoice_numbers": invoice_numbers,
+            "invoice_link": invoice_link.strip(),
             "message": message,
             "tone": tone,
             "whatsapp_url": f"https://wa.me/91{customer_phone}?text={quote(message)}",
@@ -1716,10 +1732,20 @@ class ToolExecutor:
     def _parse_date(self, value: str) -> datetime.date:
         return datetime.strptime(value, "%Y-%m-%d").date()
 
+    _STATUS_ALIASES: dict[str, str] = {
+        "partially_paid": InvoiceStatus.PARTIAL.value,
+        "fully_paid": InvoiceStatus.PAID.value,
+    }
+
     def _optional_invoice_status(self, value: Any) -> InvoiceStatus | None:
         if value is None:
             return None
-        return InvoiceStatus(str(value))
+        raw = str(value).lower().strip()
+        raw = self._STATUS_ALIASES.get(raw, raw)
+        try:
+            return InvoiceStatus(raw)
+        except ValueError:
+            return None
 
     def _get_invoice_display_context(self, lead_id: UUID | None) -> tuple[str | None, str | None]:
         if lead_id is None:
@@ -1731,6 +1757,7 @@ class ToolExecutor:
             return None, None
 
         customer_name = None
+        customer_phone = None
         if lead.customer_id is not None:
             try:
                 customer = customer_service.get_customer(
@@ -1739,12 +1766,15 @@ class ToolExecutor:
                     lead.customer_id,
                 )
                 customer_name = customer.name
+                customer_phone = customer.phone
             except HTTPException:
                 customer_name = None
-        return customer_name, lead.title
+                customer_phone = None
+        return customer_name, customer_phone, lead.title
 
     def _get_followup_display_context(self, lead_id: UUID | None) -> tuple[str | None, str | None]:
-        return self._get_invoice_display_context(lead_id)
+        customer_name, customer_phone, lead_title = self._get_invoice_display_context(lead_id)
+        return customer_name, lead_title
 
     def _optional_payment_method(self, value: Any) -> PaymentMethod:
         if value is None or value == "":
