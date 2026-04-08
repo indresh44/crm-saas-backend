@@ -3,8 +3,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class LLMSettings(BaseSettings):
-    # primary_model: str = Field(default="gemini/gemini-3-flash-preview", alias="LLM_PRIMARY_MODEL")
-    primary_model: str = Field(default="gemini/gemini-2.5-flash", alias="LLM_PRIMARY_MODEL")
+    primary_model: str = Field(default="gemini/gemini-3-flash-preview", alias="LLM_PRIMARY_MODEL")
+    # primary_model: str = Field(default="gemini/gemini-2.5-flash", alias="LLM_PRIMARY_MODEL")
 
     summarization_model: str = Field(
         default="gemini/gemini-3-flash-preview",
