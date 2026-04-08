@@ -69,6 +69,17 @@ class InvoiceListResponse(SQLModel):
     summary: InvoiceListSummary
 
 
+class InvoicePublicMeta(SQLModel):
+    """Minimal invoice info for public (unauthenticated) access."""
+    invoice_number: str
+    total_amount: Decimal
+    due_date: date
+    status: InvoiceStatus
+    customer_name: Optional[str] = None
+    business_name: str = ""
+    items_count: int = 0
+
+
 class Invoice(InvoiceBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
     __tablename__ = "invoices"
 

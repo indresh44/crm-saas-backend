@@ -7,6 +7,7 @@ from sqlalchemy import and_, case, func
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
+from app.models.business import Business
 from app.models.customer import Customer
 from app.models.enums import InvoiceStatus
 from app.models.invoice import Invoice
@@ -246,3 +247,26 @@ def list_invoices_enriched(
             "outstanding_count": int(summary_row.outstanding_count),
         },
     )
+
+
+def get_invoice_public(
+    session: Session,
+    invoice_id: UUID,
+) -> tuple[Invoice, str | None, str] | None:
+    """Fetch invoice by UUID with customer name and business name (no auth)."""
+    statement = (
+        select(
+            Invoice,
+            Customer.name.label("customer_name"),
+            Business.name.label("business_name"),
+        )
+        .options(selectinload(Invoice.items))
+        .outerjoin(Lead, Invoice.lead_id == Lead.id)
+        .outerjoin(Customer, Lead.customer_id == Customer.id)
+        .outerjoin(Business, Invoice.business_id == Business.id)
+        .where(Invoice.id == invoice_id)
+    )
+    row = session.exec(statement).first()
+    if row is None:
+        return None
+    return row[0], row[1], row[2] or ""

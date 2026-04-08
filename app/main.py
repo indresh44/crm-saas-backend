@@ -24,6 +24,7 @@ from app.api.v1.tasks import router as tasks_router
 from app.api.v1.whatsapp_accounts import router as whatsapp_accounts_router
 from app.api.v1.whatsapp_conversations import router as whatsapp_conversations_router
 from app.api.v1.whatsapp_messages import router as whatsapp_messages_router
+from app.api.v1.public_invoices import router as public_invoices_router
 from app.api.v1.whatsapp_webhooks import router as whatsapp_webhooks_router
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -76,6 +77,7 @@ app.include_router(whatsapp_accounts_router, prefix="/api/v1", tags=["whatsapp-a
 app.include_router(whatsapp_conversations_router, prefix="/api/v1", tags=["whatsapp-conversations"])
 app.include_router(whatsapp_messages_router, prefix="/api/v1", tags=["whatsapp-messages"])
 app.include_router(whatsapp_webhooks_router, prefix="/api/v1", tags=["whatsapp-webhooks"])
+app.include_router(public_invoices_router, prefix="/api/public", tags=["public-invoices"])
 
 
 @app.get("/health")
