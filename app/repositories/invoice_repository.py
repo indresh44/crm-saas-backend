@@ -254,19 +254,33 @@ def get_invoice_public(
     invoice_id: UUID,
 ) -> tuple[Invoice, str | None, str] | None:
     """Fetch invoice by UUID with customer name and business name (no auth)."""
-    statement = (
-        select(
-            Invoice,
-            Customer.name.label("customer_name"),
-            Business.name.label("business_name"),
-        )
+    # Step 1: fetch invoice with items
+    inv_stmt = (
+        select(Invoice)
         .options(selectinload(Invoice.items))
-        .outerjoin(Lead, Invoice.lead_id == Lead.id)
-        .outerjoin(Customer, Lead.customer_id == Customer.id)
-        .outerjoin(Business, Invoice.business_id == Business.id)
         .where(Invoice.id == invoice_id)
     )
-    row = session.exec(statement).first()
-    if row is None:
+    invoice = session.exec(inv_stmt).first()
+    if invoice is None:
         return None
-    return row[0], row[1], row[2] or ""
+
+    # Step 2: resolve customer name via lead
+    customer_name: str | None = None
+    if invoice.lead_id is not None:
+        row = session.exec(
+            select(Customer.name)
+            .join(Lead, Lead.customer_id == Customer.id)
+            .where(Lead.id == invoice.lead_id)
+        ).first()
+        if row is not None:
+            customer_name = row
+
+    # Step 3: resolve business name
+    business_name = ""
+    biz_row = session.exec(
+        select(Business.name).where(Business.id == invoice.business_id)
+    ).first()
+    if biz_row is not None:
+        business_name = biz_row
+
+    return invoice, customer_name, business_name
