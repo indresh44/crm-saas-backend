@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlmodel import SQLModel, Session
 
-from app.models.enums import InvoiceStatus
+from app.models.enums import InvoiceStatus, LeadActivityType
 from app.models.invoice import Invoice, InvoiceListItem
 from app.models.invoice_item import InvoiceItem, InvoiceItemCreate
 from app.models.user import User
@@ -21,7 +21,8 @@ from app.repositories.invoice_repository import (
     replace_invoice_items,
     update_invoice as repo_update_invoice,
 )
-from app.repositories.lead_repository import get_lead_by_id
+from app.models.lead import LeadActivity
+from app.repositories.lead_repository import create_lead_activity, get_lead_by_id
 from app.repositories.payment_repository import list_payments_for_invoice
 from app.services.line_item_calculator import calculate_totals
 from app.services.invoice_pdf_service import generate_invoice_pdf
@@ -124,6 +125,14 @@ def create_invoice(
     session.commit()
     session.refresh(invoice)
 
+    if invoice.lead_id is not None:
+        create_lead_activity(session, LeadActivity(
+            lead_id=invoice.lead_id,
+            type=LeadActivityType.INVOICE_CREATED,
+            description=f"Invoice {invoice.invoice_number} created (₹{invoice.total_amount:,.2f})",
+            created_by=current_user.id,
+        ))
+
     return invoice
 
 
@@ -211,6 +220,14 @@ def update_invoice(
         replace_invoice_items(session, invoice_id=invoice.id, items=items)
         session.refresh(invoice)
         clear_invoice_pdf(session, invoice)
+
+    if requested_status == InvoiceStatus.APPROVED and invoice.lead_id is not None:
+        create_lead_activity(session, LeadActivity(
+            lead_id=invoice.lead_id,
+            type=LeadActivityType.INVOICE_APPROVED,
+            description=f"Invoice {invoice.invoice_number} approved",
+            created_by=current_user.id,
+        ))
 
     return invoice
 

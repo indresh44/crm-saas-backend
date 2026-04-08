@@ -5,7 +5,8 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
-from app.models.lead import Lead
+from app.models.enums import LeadActivityType
+from app.models.lead import Lead, LeadActivity
 from app.models.lead_followup import (
     LeadFollowup,
     LeadFollowupCreate,
@@ -23,7 +24,7 @@ from app.repositories.lead_followup_repository import (
     list_followups_with_filters,
     update_lead_followup as repo_update_lead_followup,
 )
-from app.repositories.lead_repository import get_lead_by_id
+from app.repositories.lead_repository import create_lead_activity, get_lead_by_id
 
 
 def _get_lead_for_business(
@@ -95,7 +96,15 @@ def create_followup(
         note=data.note,
         created_by=current_user.id,
     )
-    return repo_create_lead_followup(session, followup)
+    result = repo_create_lead_followup(session, followup)
+    create_lead_activity(session, LeadActivity(
+        lead_id=lead.id,
+        type=LeadActivityType.FOLLOWUP_SCHEDULED,
+        description=f"Follow-up scheduled for {result.scheduled_at.strftime('%d %b %Y')}"
+                   + (f" — {result.note}" if result.note else ""),
+        created_by=current_user.id,
+    ))
+    return result
 
 
 def list_followups(
@@ -199,7 +208,14 @@ def mark_followup_done(
     if data.note is not None:
         followup.note = data.note
 
-    return repo_update_lead_followup(session, followup)
+    result = repo_update_lead_followup(session, followup)
+    create_lead_activity(session, LeadActivity(
+        lead_id=followup.lead_id,
+        type=LeadActivityType.FOLLOWUP_COMPLETED,
+        description="Follow-up marked as done" + (f" — {result.note}" if result.note else ""),
+        created_by=current_user.id,
+    ))
+    return result
 
 
 def update_followup(
@@ -209,6 +225,8 @@ def update_followup(
     data: LeadFollowupUpdate,
 ) -> LeadFollowup:
     followup = get_followup(session, current_user, followup_id)
+    old_status = followup.status
+    old_scheduled_at = followup.scheduled_at
 
     if data.scheduled_at is not None:
         followup.scheduled_at = data.scheduled_at
@@ -223,4 +241,26 @@ def update_followup(
     if data.completed_at is not None:
         followup.completed_at = data.completed_at
 
-    return repo_update_lead_followup(session, followup)
+    result = repo_update_lead_followup(session, followup)
+
+    activity_type = None
+    desc = ""
+    if data.status == "done" and old_status != "done":
+        activity_type = LeadActivityType.FOLLOWUP_COMPLETED
+        desc = "Follow-up marked as done" + (f" — {result.note}" if result.note else "")
+    elif data.status == "cancelled" and old_status != "cancelled":
+        activity_type = LeadActivityType.FOLLOWUP_CANCELLED
+        desc = "Follow-up cancelled" + (f" — {result.note}" if result.note else "")
+    elif data.scheduled_at is not None and data.scheduled_at != old_scheduled_at:
+        activity_type = LeadActivityType.FOLLOWUP_RESCHEDULED
+        desc = f"Follow-up rescheduled to {result.scheduled_at.strftime('%d %b %Y')}" + (f" — {result.note}" if result.note else "")
+
+    if activity_type:
+        create_lead_activity(session, LeadActivity(
+            lead_id=followup.lead_id,
+            type=activity_type,
+            description=desc,
+            created_by=current_user.id,
+        ))
+
+    return result

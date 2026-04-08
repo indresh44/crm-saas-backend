@@ -5,11 +5,13 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
-from app.models.enums import InvoiceStatus
+from app.models.enums import InvoiceStatus, LeadActivityType
 from app.models.invoice import Invoice
 from app.models.payment import Payment, PaymentCreate
 from app.models.user import User
+from app.models.lead import LeadActivity
 from app.repositories.invoice_repository import get_invoice_by_id
+from app.repositories.lead_repository import create_lead_activity
 from app.services.invoice_service import clear_invoice_pdf
 from app.services.invoice_service import list_customer_invoices as service_list_customer_invoices
 
@@ -41,6 +43,14 @@ def create_payment(
     clear_invoice_pdf(session, invoice)
     session.commit()
     session.refresh(payment)
+
+    if invoice.lead_id is not None:
+        create_lead_activity(session, LeadActivity(
+            lead_id=invoice.lead_id,
+            type=LeadActivityType.PAYMENT_RECORDED,
+            description=f"Payment of ₹{payment.amount:,.2f} recorded for {invoice.invoice_number}",
+            created_by=current_user.id,
+        ))
 
     return payment
 

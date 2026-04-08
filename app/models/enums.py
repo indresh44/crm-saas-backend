@@ -21,6 +21,13 @@ class LeadActivityType(str, Enum):
     MEETING = "meeting"
     NOTE = "note"
     STATUS_CHANGE = "status_change"
+    FOLLOWUP_SCHEDULED = "followup_scheduled"
+    FOLLOWUP_RESCHEDULED = "followup_rescheduled"
+    FOLLOWUP_COMPLETED = "followup_completed"
+    FOLLOWUP_CANCELLED = "followup_cancelled"
+    INVOICE_CREATED = "invoice_created"
+    INVOICE_APPROVED = "invoice_approved"
+    PAYMENT_RECORDED = "payment_recorded"
 
 
 class QuoteStatus(str, Enum):
