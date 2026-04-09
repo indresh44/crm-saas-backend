@@ -1111,11 +1111,79 @@ GLOBAL_TOOLS = [
 ]
 
 
+# --- Onboarding Tools ---
+
+TOOL_SET_ONBOARDING_PERSONA = {
+    "type": "function",
+    "function": {
+        "name": "set_onboarding_persona",
+        "description": "Set the business type/persona during onboarding. This seeds the pipeline with persona-specific stages. Call this when the user tells you what kind of business they run.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "persona": {
+                    "type": "string",
+                    "enum": ["interior_designer", "photographer", "coach", "other"],
+                    "description": "The business persona type.",
+                },
+                "label": {
+                    "type": "string",
+                    "description": "Custom label if persona is 'other' (e.g., 'yoga instructor', 'contractor').",
+                },
+            },
+            "required": ["persona"],
+        },
+    },
+}
+
+TOOL_ADD_ONBOARDING_CATALOG_ITEM = {
+    "type": "function",
+    "function": {
+        "name": "add_onboarding_catalog_item",
+        "description": "Add the first catalog item during onboarding. Call when user provides a service/item name and price.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Name of the catalog item or service.",
+                },
+                "price": {
+                    "type": "number",
+                    "description": "Price in INR.",
+                },
+            },
+            "required": ["name", "price"],
+        },
+    },
+}
+
+TOOL_COMPLETE_ONBOARDING = {
+    "type": "function",
+    "function": {
+        "name": "complete_onboarding",
+        "description": "Mark onboarding as completed. Call this after persona is set and (optionally) first item is added, or when user wants to skip remaining steps.",
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+}
+
+ONBOARDING_TOOLS = [
+    TOOL_SET_ONBOARDING_PERSONA,
+    TOOL_ADD_ONBOARDING_CATALOG_ITEM,
+    TOOL_COMPLETE_ONBOARDING,
+]
+
+
 def get_tools_for_context(context_type: str) -> list[dict]:
     mapping = {
         "dashboard": DASHBOARD_TOOLS,
         "customer": CUSTOMER_TOOLS,
         "lead": LEAD_TOOLS,
         "global": GLOBAL_TOOLS,
+        "onboarding": ONBOARDING_TOOLS,
     }
     return mapping.get(context_type, GLOBAL_TOOLS)

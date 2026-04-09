@@ -8,6 +8,7 @@ from uuid import UUID
 
 from sqlmodel import Session
 
+from app.config.prompts.onboarding_prompt import ONBOARDING_PROMPT
 from app.config.prompts.system_prompt import SYSTEM_PROMPT
 from app.core.database import engine
 from app.models.chat import ChatThread
@@ -38,6 +39,9 @@ class ContextAssembler:
         thread: ChatThread,
         user_message: str,
     ) -> AssembledContext:
+        if thread.context_type == "onboarding":
+            return await self._assemble_onboarding(business_id, thread, user_message)
+
         business_context, page_context, pipeline_context, messages = await asyncio.gather(
             self._build_business_context(business_id),
             self._build_page_context(thread.context_type, thread.context_id, business_id),
@@ -62,6 +66,46 @@ class ContextAssembler:
                 "business_id": str(business_id),
                 "context_type": thread.context_type,
                 "context_id": str(thread.context_id) if thread.context_id is not None else None,
+                "thread_id": thread.id,
+            },
+        )
+
+    async def _assemble_onboarding(
+        self,
+        business_id: UUID,
+        thread: ChatThread,
+        user_message: str,
+    ) -> AssembledContext:
+        """Build context specifically for onboarding conversations."""
+
+        def load_business() -> dict:
+            with Session(engine) as session:
+                business = business_service.get_business(session, business_id)
+                return {
+                    "business_name": business.name,
+                    "business_city": business.city or "",
+                    "onboarding_status": business.onboarding_status,
+                    "business_type": business.business_type or "not set",
+                }
+
+        biz_data, messages = await asyncio.gather(
+            asyncio.to_thread(load_business),
+            self._build_messages(thread, user_message=user_message),
+        )
+
+        system_prompt = ONBOARDING_PROMPT.format(
+            today_date=date.today().strftime("%d %b %Y"),
+            **biz_data,
+        )
+
+        return AssembledContext(
+            system_prompt=system_prompt,
+            messages=messages,
+            tools=get_tools_for_context("onboarding"),
+            context_metadata={
+                "business_id": str(business_id),
+                "context_type": "onboarding",
+                "context_id": None,
                 "thread_id": thread.id,
             },
         )

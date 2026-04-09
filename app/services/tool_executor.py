@@ -54,6 +54,9 @@ class ToolExecutor:
         "query_invoices",
         "get_billing_analytics",
         "get_invoice_payment_history",
+        "set_onboarding_persona",
+        "add_onboarding_catalog_item",
+        "complete_onboarding",
     }
 
     WRITE_TOOLS = {
@@ -1893,6 +1896,69 @@ class ToolExecutor:
             else:
                 serialized[key] = value
         return serialized
+
+
+    async def _set_onboarding_persona(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        from app.services import onboarding_service
+
+        persona = str(args.get("persona", "other"))
+        label = args.get("label")
+
+        business = onboarding_service.set_persona(
+            session=self.session,
+            business_id=business_id,
+            persona=persona,
+            label=label,
+        )
+        stages = onboarding_service.get_pipeline_preview(persona)
+        stage_names = [s["name"] for s in stages]
+
+        return {
+            "data": {
+                "business_type": business.business_type,
+                "pipeline_stages": stage_names,
+                "message": f"Pipeline set up with stages: {' → '.join(stage_names)}",
+            }
+        }
+
+    async def _add_onboarding_catalog_item(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        from app.services import onboarding_service
+
+        name = str(args.get("name", "")).strip()
+        price = float(args.get("price", 0))
+
+        if not name:
+            return {"data": {"error": "Item name is required"}}
+
+        item = onboarding_service.add_first_catalog_item(
+            session=self.session,
+            business_id=business_id,
+            name=name,
+            price=price,
+        )
+        return {
+            "data": {
+                "item_id": str(item.id),
+                "name": item.name,
+                "price": float(item.default_rate),
+                "message": f"Added '{item.name}' at ₹{float(item.default_rate):,.0f} to your catalog.",
+            }
+        }
+
+    async def _complete_onboarding(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG002
+        from app.services import onboarding_service
+
+        business = onboarding_service.complete_onboarding(
+            session=self.session,
+            business_id=business_id,
+            method="chat",
+        )
+        return {
+            "data": {
+                "onboarding_status": business.onboarding_status,
+                "message": "Onboarding completed successfully!",
+            }
+        }
 
 
 def build_tool_user(business_id: UUID) -> User:

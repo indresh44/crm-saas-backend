@@ -25,6 +25,7 @@ from app.api.v1.whatsapp_accounts import router as whatsapp_accounts_router
 from app.api.v1.whatsapp_conversations import router as whatsapp_conversations_router
 from app.api.v1.whatsapp_messages import router as whatsapp_messages_router
 from app.api.v1.public_invoices import router as public_invoices_router
+from app.api.v1.onboarding import router as onboarding_router
 from app.api.v1.whatsapp_webhooks import router as whatsapp_webhooks_router
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -71,6 +72,7 @@ app.include_router(payments_router, prefix="/api/v1", tags=["payments"])
 app.include_router(tasks_router, prefix="/api/v1", tags=["tasks"])
 app.include_router(attachments_router, prefix="/api/v1", tags=["attachments"])
 app.include_router(notifications_router, prefix="/api/v1", tags=["notifications"])
+app.include_router(onboarding_router, prefix="/api/v1", tags=["onboarding"])
 app.include_router(messages_router, prefix="/api/v1", tags=["messages"])
 app.include_router(meetings_router, prefix="/api/v1", tags=["meetings"])
 app.include_router(whatsapp_accounts_router, prefix="/api/v1", tags=["whatsapp-accounts"])

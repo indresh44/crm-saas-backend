@@ -9,6 +9,22 @@ class RegisterRequest(BaseModel):
     name: str
     business_name: str
     city: str
+    phone: str = ""
+    country_code: str = "+91"
+    is_whatsapp: bool = True
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, value: str) -> str:
+        normalized = re.sub(r"\s+", "", value.strip())
+        if not normalized:
+            return ""
+        digits = re.sub(r"[^\d]", "", normalized)
+        if len(digits) != 10:
+            raise ValueError("Phone number must be exactly 10 digits")
+        if not re.match(r"^[6-9]\d{9}$", digits):
+            raise ValueError("Enter a valid Indian mobile number")
+        return digits
 
     @field_validator("email")
     @classmethod

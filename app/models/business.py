@@ -15,6 +15,11 @@ class BusinessBase(SQLModel):
     name: str
     phone: str
     whatsapp_number: Optional[str] = None
+    is_whatsapp: bool = Field(default=True)
+    business_type: Optional[str] = Field(default=None, max_length=50, nullable=True)
+    business_type_label: Optional[str] = Field(default=None, max_length=100, nullable=True)
+    onboarding_status: str = Field(default="pending", max_length=20)
+    onboarding_method: Optional[str] = Field(default=None, max_length=10, nullable=True)
     invoice_sequence: int = Field(default=0, nullable=False)
     email: Optional[str] = Field(default=None, max_length=320, nullable=True)
     address: Optional[str] = Field(default=None, max_length=500, nullable=True)
@@ -121,6 +126,11 @@ class BusinessSettingsRead(SQLModel):
     name: str
     phone: str | None
     whatsapp_number: str | None
+    is_whatsapp: bool
+    business_type: str | None
+    business_type_label: str | None
+    onboarding_status: str
+    onboarding_method: str | None
     email: str | None
     address: str | None
     city: str | None

@@ -31,7 +31,7 @@ from app.repositories.auth_repository import (
 )
 from app.repositories.business_repository import get_business_by_id
 from app.repositories.user_repository import get_user_by_id
-from app.services.pipeline_service import create_default_pipeline
+from app.services.pipeline_service import create_default_pipeline, ensure_pipeline_exists
 
 
 def _issue_tokens(
@@ -89,6 +89,7 @@ def _build_auth_response(
         business={
             "id": str(business.id),
             "name": business.name,
+            "onboarding_status": business.onboarding_status,
         },
     )
 
@@ -110,9 +111,14 @@ def register(
             detail="An account with this email already exists",
         )
 
+    phone_full = f"{data.country_code}{data.phone}" if data.phone else ""
+
     business = Business(
         name=data.business_name.strip(),
-        phone="",
+        phone=phone_full,
+        city=data.city.strip(),
+        is_whatsapp=data.is_whatsapp,
+        onboarding_status="pending",
     )
     session.add(business)
     session.flush()
@@ -121,7 +127,7 @@ def register(
         business_id=business.id,
         name=data.name.strip(),
         email=email,
-        phone=None,
+        phone=phone_full or None,
         role=UserRole.OWNER,
         is_active=True,
     )
@@ -145,7 +151,8 @@ def register(
     session.refresh(user)
     session.refresh(business)
 
-    create_default_pipeline(session, business.id)
+    # Pipeline is NOT created here — it's created during onboarding
+    # based on the user's selected persona (business_type).
 
     tokens = _issue_tokens(session, user, device_info)
     return _build_auth_response(user, business, tokens)

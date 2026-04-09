@@ -69,14 +69,61 @@ def get_stages_for_business(
     return get_stages_by_business(session, current_user.business_id)
 
 
+PIPELINE_TEMPLATES: dict[str, list[dict]] = {
+    "interior_designer": [
+        {"name": "New Enquiry", "position": 1, "color": "#6366f1"},
+        {"name": "Interested", "position": 2, "color": "#f59e0b"},
+        {"name": "Site Visit Scheduled", "position": 3, "color": "#8b5cf6"},
+        {"name": "WIP", "position": 4, "color": "#3b82f6"},
+        {"name": "Completed", "position": 5, "color": "#10b981"},
+        {"name": "Lost", "position": 6, "color": "#ef4444"},
+    ],
+    "photographer": [
+        {"name": "New Enquiry", "position": 1, "color": "#6366f1"},
+        {"name": "Interested", "position": 2, "color": "#f59e0b"},
+        {"name": "Shoot Scheduled", "position": 3, "color": "#8b5cf6"},
+        {"name": "Delivered", "position": 4, "color": "#3b82f6"},
+        {"name": "Completed", "position": 5, "color": "#10b981"},
+        {"name": "Lost", "position": 6, "color": "#ef4444"},
+    ],
+    "coach": [
+        {"name": "New Enquiry", "position": 1, "color": "#6366f1"},
+        {"name": "Interested", "position": 2, "color": "#f59e0b"},
+        {"name": "Trial Session", "position": 3, "color": "#8b5cf6"},
+        {"name": "Completed", "position": 4, "color": "#10b981"},
+        {"name": "Lost", "position": 5, "color": "#ef4444"},
+    ],
+    "other": [
+        {"name": "New Enquiry", "position": 1, "color": "#6366f1"},
+        {"name": "Interested", "position": 2, "color": "#f59e0b"},
+        {"name": "Completed", "position": 3, "color": "#10b981"},
+        {"name": "Lost", "position": 4, "color": "#ef4444"},
+    ],
+}
+
+
 def create_default_pipeline(session: Session, business_id: uuid.UUID) -> Pipeline:
     """
-    Creates one pipeline with 5 default stages for a new business.
+    Creates one pipeline with generic stages for a new business.
     Safe to call only if no pipeline exists yet for this business.
+    """
+    return create_persona_pipeline(session, business_id, "other")
+
+
+def create_persona_pipeline(
+    session: Session,
+    business_id: uuid.UUID,
+    persona: str,
+) -> Pipeline:
+    """
+    Creates a pipeline with persona-specific stages.
+    If a pipeline already exists, returns it unchanged.
     """
     existing = get_pipeline_by_business(session, business_id)
     if existing:
         return existing
+
+    stages = PIPELINE_TEMPLATES.get(persona, PIPELINE_TEMPLATES["other"])
 
     pipeline = Pipeline(
         name="Sales Pipeline",
@@ -86,13 +133,6 @@ def create_default_pipeline(session: Session, business_id: uuid.UUID) -> Pipelin
     session.add(pipeline)
     session.flush()
 
-    stages = [
-        {"name": "Enquiry", "position": 1, "color": "#6366f1"},
-        {"name": "Interested", "position": 2, "color": "#f59e0b"},
-        {"name": "Negotiation", "position": 3, "color": "#3b82f6"},
-        {"name": "Won", "position": 4, "color": "#10b981"},
-        {"name": "Lost", "position": 5, "color": "#ef4444"},
-    ]
     for s in stages:
         session.add(
             PipelineStage(
@@ -102,6 +142,17 @@ def create_default_pipeline(session: Session, business_id: uuid.UUID) -> Pipelin
         )
     session.commit()
     return pipeline
+
+
+def ensure_pipeline_exists(session: Session, business_id: uuid.UUID) -> Pipeline:
+    """
+    Safety net: ensures a pipeline exists for a business.
+    Called when a lead is being created but onboarding may have been skipped.
+    """
+    existing = get_pipeline_by_business(session, business_id)
+    if existing:
+        return existing
+    return create_default_pipeline(session, business_id)
 
 
 def create_stage(

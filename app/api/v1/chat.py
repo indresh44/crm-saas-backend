@@ -19,7 +19,7 @@ router = APIRouter()
 
 class ChatMessageRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
-    context_type: Literal["dashboard", "customer", "lead", "global"] = "global"
+    context_type: Literal["dashboard", "customer", "lead", "global", "onboarding"] = "global"
     context_id: UUID | None = None
     thread_id: int | None = None
 
@@ -53,7 +53,7 @@ class ChatHistoryResponse(BaseModel):
 
 
 class ChatThreadRequest(BaseModel):
-    context_type: Literal["dashboard", "customer", "lead", "global"]
+    context_type: Literal["dashboard", "customer", "lead", "global", "onboarding"]
     context_id: UUID | None = None
 
     @model_validator(mode="after")

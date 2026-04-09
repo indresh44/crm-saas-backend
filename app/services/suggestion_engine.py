@@ -31,6 +31,9 @@ class SuggestionEngine:
             if business_id != self.current_user.business_id:
                 return []
 
+            if context_type == "onboarding":
+                return []
+
             suggestions: list[str] = []
             if last_action:
                 suggestions = self._suggestions_after_action(

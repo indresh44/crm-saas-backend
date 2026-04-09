@@ -360,6 +360,10 @@ class ChatOrchestrator:
                 )
             stage_id = stages[0].id
 
+        raw_source = str(confirmed_data.get("source") or "").strip().lower()
+        valid_sources = {"walk_in", "whatsapp", "referral", "instagram", "justdial", "website", "other"}
+        source = raw_source if raw_source in valid_sources else ("other" if raw_source else None)
+
         lead = lead_service.create_lead(
             session=self.session,
             current_user=self.current_user,
@@ -367,7 +371,7 @@ class ChatOrchestrator:
                 customer_id=customer.id if customer is not None else None,
                 stage_id=UUID(str(stage_id)),
                 title=str(confirmed_data.get("requirement") or f"Enquiry from {confirmed_data.get('name', 'customer')}"),
-                source=confirmed_data.get("source"),
+                source=source,
                 estimated_value=self._to_decimal(confirmed_data.get("estimated_value")),
                 notes=confirmed_data.get("notes"),
             ),
