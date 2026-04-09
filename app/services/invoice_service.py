@@ -360,6 +360,54 @@ def get_or_generate_pdf(
     )
 
 
+def generate_pdf_for_public(
+    session: Session,
+    invoice_id: UUID,
+) -> str | None:
+    """
+    Generate PDF without auth context — for public endpoint.
+    Returns pdf_url or None if generation fails.
+    """
+    from app.repositories.invoice_repository import get_invoice_public
+
+    result = get_invoice_public(session, invoice_id)
+    if result is None:
+        return None
+
+    invoice, _customer_name, _business_name = result
+
+    if invoice.pdf_url:
+        return invoice.pdf_url
+
+    business = get_business_by_id(session, invoice.business_id)
+    if business is None:
+        return None
+
+    customer = None
+    if invoice.lead_id is not None:
+        lead = get_lead_by_id(session, invoice.business_id, invoice.lead_id)
+        if lead is not None and lead.customer_id is not None:
+            customer = get_customer_by_id(session, invoice.business_id, lead.customer_id)
+
+    if customer is None:
+        return None
+
+    payments = list_payments_for_invoice(session, invoice.business_id, invoice.id)
+    payments_total = sum((payment.amount for payment in payments), Decimal("0"))
+
+    try:
+        return generate_invoice_pdf(
+            session=session,
+            invoice=invoice,
+            business=business,
+            customer=customer,
+            items=invoice.items,
+            payments_total=payments_total,
+        )
+    except Exception:
+        return None
+
+
 class InvoiceData(SQLModel):
     booking_id: Optional[UUID] = None
     lead_id: Optional[UUID] = None
