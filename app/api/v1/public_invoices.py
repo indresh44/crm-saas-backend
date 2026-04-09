@@ -78,6 +78,6 @@ async def download_invoice_pdf_public(
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'inline; filename="{filename}"',
-            "Cache-Control": "public, max-age=3600",
+            "Cache-Control": "no-cache",
         },
     )
