@@ -42,7 +42,7 @@ class ContextAssembler:
         if thread.context_type == "onboarding":
             return await self._assemble_onboarding(business_id, thread, user_message)
 
-        business_context, page_context, pipeline_context, messages = await asyncio.gather(
+        (business_context, preferred_language), page_context, pipeline_context, messages = await asyncio.gather(
             self._build_business_context(business_id),
             self._build_page_context(thread.context_type, thread.context_id, business_id),
             self._build_pipeline_stages(business_id),
@@ -51,7 +51,10 @@ class ContextAssembler:
 
         system_prompt = "\n\n".join(
             [
-                SYSTEM_PROMPT.format(today_date=date.today().strftime("%d %b %Y")),
+                SYSTEM_PROMPT.format(
+                    today_date=date.today().strftime("%d %b %Y"),
+                    preferred_language=preferred_language,
+                ),
                 business_context,
                 page_context,
                 pipeline_context,
@@ -81,11 +84,14 @@ class ContextAssembler:
         def load_business() -> dict:
             with Session(engine) as session:
                 business = business_service.get_business(session, business_id)
+                msg_count = chat_message_repo.count(session, thread.id)
                 return {
                     "business_name": business.name,
                     "business_city": business.city or "",
                     "onboarding_status": business.onboarding_status,
                     "business_type": business.business_type or "not set",
+                    "preferred_language": business.preferred_language or "hinglish",
+                    "language_chosen": "yes" if msg_count > 0 else "no",
                 }
 
         biz_data, messages = await asyncio.gather(
@@ -110,11 +116,11 @@ class ContextAssembler:
             },
         )
 
-    async def _build_business_context(self, business_id: UUID) -> str:
-        def load() -> str:
+    async def _build_business_context(self, business_id: UUID) -> tuple[str, str]:
+        def load() -> tuple[str, str]:
             with Session(engine) as session:
                 business = business_service.get_business(session, business_id)
-                return "\n".join(
+                context = "\n".join(
                     [
                         "BUSINESS:",
                         f"Name: {business.name}",
@@ -123,6 +129,7 @@ class ContextAssembler:
                         f"Invoice prefix: {business.invoice_prefix or 'INV'}",
                     ]
                 )
+                return context, getattr(business, "preferred_language", "hinglish") or "hinglish"
 
         return await asyncio.to_thread(load)
 

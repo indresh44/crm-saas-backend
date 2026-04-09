@@ -15,6 +15,31 @@ from app.services.pipeline_service import PIPELINE_TEMPLATES, create_persona_pip
 
 
 VALID_PERSONAS = {"interior_designer", "photographer", "coach", "other"}
+VALID_LANGUAGES = {"hinglish", "english", "hindi"}
+
+
+def set_language(
+    session: Session,
+    business_id: UUID,
+    language: str,
+) -> Business:
+    """Set the preferred language for AI responses."""
+    normalized = language.strip().lower()
+    if normalized not in VALID_LANGUAGES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid language. Must be one of: {', '.join(sorted(VALID_LANGUAGES))}",
+        )
+
+    business = get_business_by_id(session, business_id)
+    if not business:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Business not found")
+
+    business.preferred_language = normalized
+    session.add(business)
+    session.commit()
+    session.refresh(business)
+    return business
 
 
 def set_persona(

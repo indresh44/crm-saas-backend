@@ -30,6 +30,14 @@ class HealthCheckResponse(BaseModel):
     ai_available: bool
 
 
+class SetLanguageRequest(BaseModel):
+    language: str
+
+
+class SetLanguageResponse(BaseModel):
+    preferred_language: str
+
+
 class SetPersonaRequest(BaseModel):
     persona: str
     label: str | None = None
@@ -91,6 +99,21 @@ async def check_ai_health(
     except Exception as exc:
         logger.warning("AI health check failed: %s", exc)
         return HealthCheckResponse(ai_available=False)
+
+
+@router.post("/language", response_model=SetLanguageResponse)
+def set_language(
+    data: SetLanguageRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> SetLanguageResponse:
+    """Set preferred language during onboarding."""
+    business = onboarding_service.set_language(
+        session=session,
+        business_id=current_user.business_id,
+        language=data.language,
+    )
+    return SetLanguageResponse(preferred_language=business.preferred_language)
 
 
 @router.post("/persona", response_model=SetPersonaResponse)

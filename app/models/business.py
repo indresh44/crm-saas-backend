@@ -20,6 +20,7 @@ class BusinessBase(SQLModel):
     business_type_label: Optional[str] = Field(default=None, max_length=100, nullable=True)
     onboarding_status: str = Field(default="pending", max_length=20)
     onboarding_method: Optional[str] = Field(default=None, max_length=10, nullable=True)
+    preferred_language: str = Field(default="hinglish", max_length=20)
     invoice_sequence: int = Field(default=0, nullable=False)
     email: Optional[str] = Field(default=None, max_length=320, nullable=True)
     address: Optional[str] = Field(default=None, max_length=500, nullable=True)
@@ -62,6 +63,7 @@ class BusinessSettingsUpdate(SQLModel):
 
     name: str | None = None
     phone: str | None = None
+    preferred_language: str | None = None
     email: str | None = None
     address: str | None = None
     city: str | None = None
@@ -78,6 +80,18 @@ class BusinessSettingsUpdate(SQLModel):
     invoice_notes: str | None = None
     invoice_footer: str | None = None
     default_sac_code: str | None = None
+
+    @field_validator("preferred_language")
+    @classmethod
+    def validate_preferred_language(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip().lower()
+        if not normalized:
+            return None
+        if normalized not in {"hinglish", "english", "hindi"}:
+            raise ValueError("Language must be 'hinglish', 'english', or 'hindi'")
+        return normalized
 
     @field_validator("gst_number")
     @classmethod
@@ -131,6 +145,7 @@ class BusinessSettingsRead(SQLModel):
     business_type_label: str | None
     onboarding_status: str
     onboarding_method: str | None
+    preferred_language: str
     email: str | None
     address: str | None
     city: str | None
