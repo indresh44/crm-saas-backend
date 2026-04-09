@@ -28,8 +28,8 @@ def get_invoice_meta(
 
     invoice, customer_name, business_name = result
 
-    if invoice.status == InvoiceStatus.DRAFT:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    # if invoice.status == InvoiceStatus.DRAFT:
+    #     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
 
     items_count = len(invoice.items) if invoice.items else 0
 
