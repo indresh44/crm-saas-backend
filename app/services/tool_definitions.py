@@ -714,8 +714,9 @@ TOOL_GENERATE_INVOICE_PDF = {
         "name": "generate_invoice_pdf",
         "description": (
             "Generate a PDF for an existing invoice and return the download URL. "
-            "Use when the user says generate PDF, download invoice, share invoice, "
-            "send invoice PDF, or after an invoice has just been created and wants the PDF."
+            "Use when the user says generate PDF, download invoice, "
+            "send invoice PDF, or after an invoice has just been created and wants the PDF. "
+            "Do NOT use this for sharing — use get_invoice_share_link instead."
         ),
         "parameters": {
             "type": "object",
@@ -723,6 +724,29 @@ TOOL_GENERATE_INVOICE_PDF = {
                 "invoice_id": {
                     "type": "string",
                     "description": "UUID of the invoice to generate a PDF for.",
+                }
+            },
+            "required": ["invoice_id"],
+        },
+    },
+}
+
+TOOL_GET_INVOICE_SHARE_LINK = {
+    "type": "function",
+    "function": {
+        "name": "get_invoice_share_link",
+        "description": (
+            "Get the shareable public link for an invoice. "
+            "Use when the user wants to share an invoice, send invoice link, "
+            "view invoice link, or share invoice with customer via WhatsApp. "
+            "Does NOT generate a PDF — just returns the share link."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "invoice_id": {
+                    "type": "string",
+                    "description": "UUID of the invoice to get the share link for.",
                 }
             },
             "required": ["invoice_id"],
@@ -1022,6 +1046,7 @@ DASHBOARD_TOOLS = [
     TOOL_GET_BILLING_ANALYTICS,
     TOOL_PREPARE_INVOICE,
     TOOL_GENERATE_INVOICE_PDF,
+    TOOL_GET_INVOICE_SHARE_LINK,
     TOOL_SEND_PAYMENT_REMINDER,
     TOOL_SCHEDULE_FOLLOWUP,
     TOOL_COMPLETE_FOLLOWUP,
@@ -1048,6 +1073,7 @@ CUSTOMER_TOOLS = [
     TOOL_SEND_PAYMENT_REMINDER,
     TOOL_PREPARE_INVOICE,
     TOOL_GENERATE_INVOICE_PDF,
+    TOOL_GET_INVOICE_SHARE_LINK,
     TOOL_SCHEDULE_FOLLOWUP,
     TOOL_COMPLETE_FOLLOWUP,
     TOOL_RESCHEDULE_FOLLOWUP,
@@ -1075,6 +1101,7 @@ LEAD_TOOLS = [
     TOOL_RECORD_PAYMENT,
     TOOL_PREPARE_INVOICE,
     TOOL_GENERATE_INVOICE_PDF,
+    TOOL_GET_INVOICE_SHARE_LINK,
     TOOL_ADD_LEAD_NOTE,
 ]
 
@@ -1103,6 +1130,7 @@ GLOBAL_TOOLS = [
     TOOL_SEND_PAYMENT_REMINDER,
     TOOL_PREPARE_INVOICE,
     TOOL_GENERATE_INVOICE_PDF,
+    TOOL_GET_INVOICE_SHARE_LINK,
     TOOL_ADD_LEAD_NOTE,
     TOOL_COMPLETE_FOLLOWUP,
     TOOL_RESCHEDULE_FOLLOWUP,

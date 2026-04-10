@@ -1201,6 +1201,24 @@ class ToolExecutor:
             },
         }
 
+    async def _get_invoice_share_link(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        del business_id
+        invoice_id = self._require_uuid(args, "invoice_id")
+        invoice = invoice_service.get_invoice(
+            session=self.session,
+            current_user=self.current_user,
+            invoice_id=invoice_id,
+        )
+        branded_url = f"https://sellnsettle.com/invoices/{invoice_id}/{invoice.invoice_number}.pdf"
+        return {
+            "data": {
+                "share_link": branded_url,
+                "invoice_id": str(invoice_id),
+                "invoice_number": invoice.invoice_number,
+                "message": f"Share link for {invoice.invoice_number}: {branded_url}",
+            }
+        }
+
     async def _generate_invoice_pdf(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
         del business_id
         invoice_id = self._require_uuid(args, "invoice_id")

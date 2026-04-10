@@ -222,6 +222,8 @@ class ChatOrchestrator:
         thread = self._get_thread_or_403(thread_id)
         suggestion_engine = SuggestionEngine(session=self.session, current_user=self.current_user)
 
+        pdf_payload = None
+
         if action_type == "confirm_create_lead":
             result = self._confirm_create_lead(confirmed_data)
             reply = f"✓ Lead created successfully. Lead ID: {result['lead_id']}"
@@ -243,6 +245,10 @@ class ChatOrchestrator:
         elif action_type == "confirm_create_invoice":
             result = self._confirm_create_invoice(confirmed_data)
             reply = f"✓ Invoice {result['invoice_number']} created for ₹{result['total_amount']:,.2f}"
+            pdf_payload = {
+                "invoice_id": result["invoice_id"],
+                "invoice_number": result["invoice_number"],
+            }
         elif action_type == "confirm_update_invoice":
             result = self._confirm_update_invoice(confirmed_data)
             reply = f"✓ {result['summary']}"
@@ -289,6 +295,7 @@ class ChatOrchestrator:
             action=None,
             suggestions=suggestions,
             tokens_used=0,
+            pdf=pdf_payload,
         )
 
     def _resolve_thread(
@@ -745,6 +752,11 @@ class ChatOrchestrator:
             if pdf_url:
                 return {
                     "url": pdf_url,
+                    "invoice_id": data.get("invoice_id"),
+                    "invoice_number": data.get("invoice_number"),
+                }
+            if data.get("share_link"):
+                return {
                     "invoice_id": data.get("invoice_id"),
                     "invoice_number": data.get("invoice_number"),
                 }

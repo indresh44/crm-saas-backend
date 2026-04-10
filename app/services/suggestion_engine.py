@@ -81,6 +81,7 @@ class SuggestionEngine:
             "get_billing_analytics": ["Compare with last month", "Show top customers", "Show overdue invoices"],
             "get_invoice_payment_history": ["Record payment", "Show invoice details"],
             "generate_invoice_pdf": ["Share on WhatsApp", "Create another invoice"],
+            "get_invoice_share_link": ["Generate PDF", "Create another invoice"],
             "add_lead_note": ["Review note", "Confirm note"],
             "get_invoice_details": ["Record payment", "Generate PDF", "Share on WhatsApp"],
             "record_payment": ["Review payment", "Confirm payment"],
