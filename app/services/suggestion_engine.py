@@ -34,7 +34,6 @@ class SuggestionEngine:
             if context_type == "onboarding":
                 return []
 
-            suggestions: list[str] = []
             if last_action:
                 suggestions = self._suggestions_after_action(
                     last_action=last_action,
@@ -44,13 +43,7 @@ class SuggestionEngine:
                 if suggestions:
                     return suggestions[:3]
 
-            if context_type == "dashboard":
-                return (await self._suggestions_for_dashboard(business_id))[:3]
-            if context_type == "customer" and context_id is not None:
-                return (await self._suggestions_for_customer(context_id, business_id))[:3]
-            if context_type == "lead" and context_id is not None:
-                return (await self._suggestions_for_lead(context_id, business_id))[:3]
-            return (await self._suggestions_for_global(business_id))[:3]
+            return ["Show today's follow-ups", "Create a new lead", "Search for a customer"]
         except Exception:
             return []
 

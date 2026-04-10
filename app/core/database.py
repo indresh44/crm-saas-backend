@@ -6,7 +6,10 @@ from app.core.config import settings
 
 engine = create_engine(
     settings.database_url,
-    echo=True,
+    echo=False,
+    pool_size=20,
+    max_overflow=10,
+    pool_recycle=1800,
 )
 
 

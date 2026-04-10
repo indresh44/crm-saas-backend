@@ -4,11 +4,15 @@ import json
 import logging
 import os
 import time
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from pydantic import BaseModel, Field
 
 from app.config.llm_config import llm_settings
+from app.models.chat_metrics import LLMCallMetric
+
+if TYPE_CHECKING:
+    from app.services.chat_timer import ChatTimer
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +50,7 @@ class LLMResponse(BaseModel):
     output_tokens: int = 0
     model: str
     total_rounds: int = 1
+    llm_call_metrics: list[LLMCallMetric] | None = None
 
 
 class LLMService:
@@ -79,6 +84,7 @@ class LLMService:
                 temperature=llm_settings.temperature,
                 timeout=llm_settings.timeout,
                 drop_params=True,
+                reasoning_effort="medium",
             )
         except Exception as exc:
             latency_ms = int((time.perf_counter() - start) * 1000)
@@ -105,27 +111,43 @@ class LLMService:
         tool_executor: Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
         model: str | None = None,
         max_tool_rounds: int = 5,
+        timer: ChatTimer | None = None,
     ) -> LLMResponse:
         working_messages = list(messages)
         total_input_tokens = 0
         total_output_tokens = 0
         rounds = 0
+        round_metrics: list[LLMCallMetric] = []
 
         while True:
             rounds += 1
+            llm_start = time.perf_counter()
             response = await self.chat(
                 system_prompt=system_prompt,
                 messages=working_messages,
                 tools=tools,
                 model=model,
             )
+            llm_duration_ms = (time.perf_counter() - llm_start) * 1000
+            if timer:
+                timer.record(f"llm_round_{rounds}", "llm", llm_duration_ms)
+
             total_input_tokens += response.input_tokens
             total_output_tokens += response.output_tokens
 
             if not response.tool_calls or response.stop_reason != "tool_use":
+                round_metrics.append(LLMCallMetric(
+                    round_number=rounds,
+                    model=response.model,
+                    input_tokens=response.input_tokens,
+                    output_tokens=response.output_tokens,
+                    duration_ms=round(llm_duration_ms, 2),
+                    triggered_tools=[],
+                ))
                 response.input_tokens = total_input_tokens
                 response.output_tokens = total_output_tokens
                 response.total_rounds = rounds
+                response.llm_call_metrics = round_metrics
                 return response
 
             if tool_executor is None:
@@ -151,8 +173,14 @@ class LLMService:
             }
             working_messages.append(assistant_message)
 
+            triggered_tools: list[str] = []
             for tool_call in response.tool_calls:
+                tool_start = time.perf_counter()
                 tool_result = await tool_executor(tool_call.name, tool_call.arguments)
+                tool_duration_ms = (time.perf_counter() - tool_start) * 1000
+                if timer:
+                    timer.record(f"tool:{tool_call.name}", "tool", tool_duration_ms)
+                triggered_tools.append(tool_call.name)
                 working_messages.append(
                     {
                         "role": "tool",
@@ -160,6 +188,15 @@ class LLMService:
                         "content": json.dumps(tool_result),
                     }
                 )
+
+            round_metrics.append(LLMCallMetric(
+                round_number=rounds,
+                model=response.model,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
+                duration_ms=round(llm_duration_ms, 2),
+                triggered_tools=triggered_tools,
+            ))
 
     def _parse_response(self, response: Any, fallback_model: str) -> LLMResponse:
         choice = response.choices[0]

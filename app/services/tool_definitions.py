@@ -43,6 +43,25 @@ TOOL_GET_LEAD_DETAILS = {
     },
 }
 
+TOOL_GET_CUSTOMER_DETAILS = {
+    "type": "function",
+    "function": {
+        "name": "get_customer_details",
+        "description": "Get basic details of a customer — name, phone, email. Use when you need to look up customer info by their ID.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "customer_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "description": "The UUID of the customer.",
+                }
+            },
+            "required": ["customer_id"],
+        },
+    },
+}
+
 TOOL_GET_CUSTOMER_OUTSTANDING = {
     "type": "function",
     "function": {
@@ -1004,7 +1023,7 @@ TOOL_ADD_LEAD_NOTE = {
     "function": {
         "name": "add_lead_note",
         "description": (
-            "Add a note to a lead's activity log. Use when the user says note, add note, "
+            "Add a note to a lead. Use when the user says note, add note, "
             "remember that, mark that, or provides contextual information about a lead "
             "that should be saved."
         ),
@@ -1113,9 +1132,16 @@ GLOBAL_TOOLS = [
     TOOL_GET_DASHBOARD_SUMMARY,
     TOOL_CREATE_LEAD,
     TOOL_GET_CATALOG_ITEMS,
+    TOOL_GET_LEAD_DETAILS,
+    TOOL_GET_LEAD_FOLLOWUPS,
+    TOOL_GET_CUSTOMER_DETAILS,
+    TOOL_GET_CUSTOMER_OUTSTANDING,
     TOOL_LIST_CUSTOMER_INVOICES,
+    TOOL_LIST_CUSTOMER_PAYMENTS,
     TOOL_QUERY_INVOICES,
     TOOL_UPDATE_INVOICE,
+    TOOL_UPDATE_LEAD_STAGE,
+    TOOL_SCHEDULE_FOLLOWUP,
     TOOL_GET_BILLING_ANALYTICS,
     TOOL_GET_INVOICE_PAYMENT_HISTORY,
     TOOL_LIST_LEADS_BY_STAGE,
@@ -1207,11 +1233,6 @@ ONBOARDING_TOOLS = [
 
 
 def get_tools_for_context(context_type: str) -> list[dict]:
-    mapping = {
-        "dashboard": DASHBOARD_TOOLS,
-        "customer": CUSTOMER_TOOLS,
-        "lead": LEAD_TOOLS,
-        "global": GLOBAL_TOOLS,
-        "onboarding": ONBOARDING_TOOLS,
-    }
-    return mapping.get(context_type, GLOBAL_TOOLS)
+    if context_type == "onboarding":
+        return ONBOARDING_TOOLS
+    return GLOBAL_TOOLS

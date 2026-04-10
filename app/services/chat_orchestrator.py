@@ -23,6 +23,8 @@ from app.services import customer_service, lead_followup_service, lead_service, 
 from app.services import invoice_service, lead_activity_service, payment_service
 from app.services.chat.mention_parser import resolve_mentions
 from app.services.context_assembler import ContextAssembler
+from app.models.chat_metrics import ChatMessageMetrics, ToolCallMetric
+from app.services.chat_timer import ChatTimer
 from app.services.llm_service import LLMResponse, LLMService
 from app.services.suggestion_engine import SuggestionEngine
 from app.services.tool_executor import ToolExecutor
@@ -43,6 +45,7 @@ class ChatMessageResponse(BaseModel):
     suggestions: list[str] = []
     tokens_used: int = 0
     pdf: dict[str, Any] | None = None
+    metrics: ChatMessageMetrics | None = None
 
 
 class ChatOrchestrator:
@@ -69,30 +72,37 @@ class ChatOrchestrator:
         context_id: UUID | None,
         thread_id: int | None = None,
     ) -> ChatMessageResponse:
-        parsed = resolve_mentions(
-            session=self.session,
-            current_user=self.current_user,
-            message=user_message,
-        )
-        thread = self._resolve_thread(
-            business_id=self.current_user.business_id,
-            context_type=context_type,
-            context_id=context_id,
-            thread_id=thread_id,
-        )
+        timer = ChatTimer()
 
-        chat_message_repo.create(
-            session=self.session,
-            thread_id=thread.id,
-            role="user",
-            content=user_message,
-        )
+        with timer.track("mention_parsing", "other"):
+            parsed = resolve_mentions(
+                session=self.session,
+                current_user=self.current_user,
+                message=user_message,
+            )
 
-        assembled = await self.context_assembler.assemble(
-            business_id=self.current_user.business_id,
-            thread=thread,
-            user_message=user_message,
-        )
+        with timer.track("thread_resolution", "db"):
+            thread = self._resolve_thread(
+                business_id=self.current_user.business_id,
+                context_type=context_type,
+                context_id=context_id,
+                thread_id=thread_id,
+            )
+
+        with timer.track("save_user_msg", "db"):
+            chat_message_repo.create(
+                session=self.session,
+                thread_id=thread.id,
+                role="user",
+                content=user_message,
+            )
+
+        async with timer.track_async("context_assembly", "context"):
+            assembled = await self.context_assembler.assemble(
+                business_id=self.current_user.business_id,
+                thread=thread,
+                user_message=user_message,
+            )
         if parsed.mention_context:
             assembled.system_prompt = f"{assembled.system_prompt}\n\n{parsed.mention_context}"
         assembled.messages.append({"role": "user", "content": parsed.clean_message})
@@ -132,6 +142,7 @@ class ChatOrchestrator:
             messages=assembled.messages,
             tools=assembled.tools,
             tool_executor=_tool_callback,
+            timer=timer,
         )
 
         reply = llm_response.content or (
@@ -139,26 +150,38 @@ class ChatOrchestrator:
         )
         tokens_used = llm_response.input_tokens + llm_response.output_tokens
 
-        chat_message_repo.create(
-            session=self.session,
-            thread_id=thread.id,
-            role="assistant",
-            content=reply,
-            tool_name=self._tool_name_for_storage(tool_traces),
-            tool_input={"tool_calls": [trace["tool_input"] for trace in tool_traces]} if tool_traces else None,
-            tool_output={"tool_results": [trace["tool_output"] for trace in tool_traces]} if tool_traces else None,
-            tokens_used=tokens_used,
-        )
+        async def _save_assistant_msg() -> None:
+            with timer.track("save_assistant_msg", "db"):
+                chat_message_repo.create(
+                    session=self.session,
+                    thread_id=thread.id,
+                    role="assistant",
+                    content=reply,
+                    tool_name=self._tool_name_for_storage(tool_traces),
+                    tool_input={"tool_calls": [trace["tool_input"] for trace in tool_traces]} if tool_traces else None,
+                    tool_output={"tool_results": [trace["tool_output"] for trace in tool_traces]} if tool_traces else None,
+                    tokens_used=tokens_used,
+                )
 
+        async def _get_suggestions() -> list[str]:
+            async with timer.track_async("suggestions", "other"):
+                last_action = tool_traces[-1]["tool_name"] if tool_traces else None
+                return await suggestion_engine.get_suggestions(
+                    context_type=context_type,
+                    context_id=context_id,
+                    business_id=self.current_user.business_id,
+                    last_action=last_action,
+                )
+
+        _, suggestions = await asyncio.gather(_save_assistant_msg(), _get_suggestions())
         asyncio.create_task(self._maybe_summarize(thread.id))
-        last_action = tool_traces[-1]["tool_name"] if tool_traces else None
-        suggestions = await suggestion_engine.get_suggestions(
-            context_type=context_type,
-            context_id=context_id,
-            business_id=self.current_user.business_id,
-            last_action=last_action,
-        )
         pdf_payload = self._extract_pdf_payload(tool_traces)
+
+        metrics = None
+        try:
+            metrics = self._build_metrics(timer=timer, llm_response=llm_response, tool_traces=tool_traces)
+        except Exception as exc:
+            logger.warning("Failed to build chat metrics: %s", exc)
 
         return ChatMessageResponse(
             thread_id=thread.id,
@@ -167,6 +190,7 @@ class ChatOrchestrator:
             suggestions=suggestions,
             tokens_used=tokens_used,
             pdf=pdf_payload,
+            metrics=metrics,
         )
 
     async def _maybe_summarize(self, thread_id: int) -> None:
@@ -766,3 +790,78 @@ class ChatOrchestrator:
         if value is None or value == "":
             return None
         return Decimal(str(value))
+
+    def _build_metrics(
+        self,
+        timer: ChatTimer,
+        llm_response: LLMResponse,
+        tool_traces: list[dict[str, Any]],
+    ) -> ChatMessageMetrics:
+        total_ms = timer.get_total_ms()
+        context_ms = timer.get_category_total("context")
+        llm_ms = timer.get_category_total("llm")
+        tool_ms = timer.get_category_total("tool")
+        db_ms = timer.get_category_total("db")
+        suggestion_ms = sum(
+            s.duration_ms for s in timer.get_segments_by_category("other")
+            if s.name == "suggestions"
+        )
+        overhead_ms = total_ms - context_ms - llm_ms - tool_ms - db_ms - suggestion_ms
+
+        tool_segments = timer.get_segments_by_category("tool")
+        tool_call_metrics = []
+        for i, segment in enumerate(tool_segments):
+            tool_name = segment.name.removeprefix("tool:")
+            success = True
+            if i < len(tool_traces):
+                output = tool_traces[i].get("tool_output") or {}
+                success = output.get("success", True)
+            tool_call_metrics.append(ToolCallMetric(
+                tool_name=tool_name,
+                duration_ms=round(segment.duration_ms, 2),
+                success=success,
+            ))
+
+        total_input = llm_response.input_tokens
+        total_output = llm_response.output_tokens
+
+        return ChatMessageMetrics(
+            total_duration_ms=round(total_ms, 2),
+            context_assembly_ms=round(context_ms, 2),
+            llm_total_ms=round(llm_ms, 2),
+            tool_total_ms=round(tool_ms, 2),
+            suggestion_ms=round(suggestion_ms, 2),
+            db_total_ms=round(db_ms, 2),
+            overhead_ms=round(max(overhead_ms, 0), 2),
+            total_input_tokens=total_input,
+            total_output_tokens=total_output,
+            total_tokens=total_input + total_output,
+            estimated_cost_usd=self._estimate_cost(
+                model=llm_response.model,
+                input_tokens=total_input,
+                output_tokens=total_output,
+            ),
+            llm_rounds=llm_response.total_rounds,
+            tools_called=[s.name.removeprefix("tool:") for s in tool_segments],
+            model=llm_response.model,
+            llm_calls=llm_response.llm_call_metrics or [],
+            tool_calls=tool_call_metrics,
+        )
+
+    def _estimate_cost(self, model: str, input_tokens: int, output_tokens: int) -> float | None:
+        COST_TABLE: dict[str, tuple[float, float]] = {
+            "gemini-2.5-flash": (0.15, 0.60),
+            "gemini-3-flash": (0.15, 0.60),
+            "gemini-2.0-flash": (0.10, 0.40),
+            "gemini-2.5-pro": (1.25, 10.00),
+            "claude-sonnet-4": (3.00, 15.00),
+            "claude-haiku-4": (0.80, 4.00),
+            "gpt-4o-mini": (0.15, 0.60),
+            "gpt-4o": (2.50, 10.00),
+        }
+        model_lower = model.lower()
+        for key, (input_price, output_price) in COST_TABLE.items():
+            if key in model_lower:
+                cost = (input_tokens * input_price + output_tokens * output_price) / 1_000_000
+                return round(cost, 6)
+        return None

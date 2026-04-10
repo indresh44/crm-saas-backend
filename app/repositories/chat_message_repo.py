@@ -43,20 +43,15 @@ def get_recent(
     thread_id: int,
     limit: int = 10,
 ) -> list[ChatMessage]:
-    recent_message_ids = (
-        select(ChatMessage.id)
+    statement = (
+        select(ChatMessage)
         .where(ChatMessage.thread_id == thread_id)
         .order_by(ChatMessage.created_at.desc(), ChatMessage.id.desc())
         .limit(limit)
-        .subquery()
     )
-
-    statement = (
-        select(ChatMessage)
-        .where(ChatMessage.id.in_(select(recent_message_ids.c.id)))
-        .order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
-    )
-    return list(session.exec(statement).all())
+    messages = list(session.exec(statement).all())
+    messages.reverse()
+    return messages
 
 
 def count(

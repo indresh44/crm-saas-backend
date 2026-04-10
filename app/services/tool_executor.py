@@ -33,6 +33,7 @@ class ToolExecutor:
         "get_todays_followups",
         "get_overdue_followups",
         "get_lead_details",
+        "get_customer_details",
         "get_customer_outstanding",
         "list_customer_invoices",
         "search_customer",
@@ -191,19 +192,54 @@ class ToolExecutor:
     async def _get_lead_details(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
         lead_id = self._require_uuid(args, "lead_id")
         lead = lead_service.get_lead(self.session, self.current_user, lead_id)
+
+        stage_name = None
+        if lead.stage_id:
+            stages = pipeline_service.get_stages_for_business(self.session, self.current_user)
+            stage = next((s for s in stages if s.id == lead.stage_id), None)
+            stage_name = stage.name if stage else None
+
+        customer_name = None
+        customer_phone = None
+        if lead.customer_id:
+            try:
+                customer = customer_service.get_customer(self.session, self.current_user, lead.customer_id)
+                customer_name = customer.name
+                customer_phone = customer.phone
+            except Exception:
+                pass
+
         return {
             "data": {
                 "lead": {
                     "id": str(lead.id),
                     "title": lead.title,
                     "customer_id": str(lead.customer_id) if lead.customer_id else None,
+                    "customer_name": customer_name,
+                    "customer_phone": customer_phone,
                     "stage_id": str(lead.stage_id),
+                    "stage_name": stage_name,
                     "source": lead.source,
                     "estimated_value": self._decimal_to_float(lead.estimated_value),
                     "follow_up_at": lead.follow_up_at.isoformat() if lead.follow_up_at else None,
                     "notes": lead.notes,
                     "created_at": lead.created_at.isoformat(),
                     "updated_at": lead.updated_at.isoformat(),
+                }
+            }
+        }
+
+    async def _get_customer_details(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:
+        customer_id = self._require_uuid(args, "customer_id")
+        customer = customer_service.get_customer(self.session, self.current_user, customer_id)
+        return {
+            "data": {
+                "customer": {
+                    "id": str(customer.id),
+                    "name": customer.name,
+                    "phone": customer.phone,
+                    "email": getattr(customer, "email", None),
+                    "created_at": customer.created_at.isoformat() if customer.created_at else None,
                 }
             }
         }

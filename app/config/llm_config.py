@@ -11,7 +11,7 @@ class LLMSettings(BaseSettings):
         alias="LLM_SUMMARIZATION_MODEL",
     )
     max_tokens: int = Field(default=1500, alias="LLM_MAX_TOKENS")
-    temperature: float = Field(default=0.3, alias="LLM_TEMPERATURE")
+    temperature: float = Field(default=0.1, alias="LLM_TEMPERATURE")
     timeout: int = Field(default=15, alias="LLM_TIMEOUT")
     llm_api_key: str | None = Field(default=None, alias="LLM_API_KEY")
     google_api_key: str | None = Field(default=None, alias="GOOGLE_API_KEY")
