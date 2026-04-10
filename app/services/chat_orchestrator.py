@@ -181,6 +181,7 @@ class ChatOrchestrator:
         try:
             metrics = self._build_metrics(timer=timer, llm_response=llm_response, tool_traces=tool_traces)
         except Exception as exc:
+            print(f"METRICS BUILD ERROR: {exc!r}")
             logger.warning("Failed to build chat metrics: %s", exc)
 
         return ChatMessageResponse(
@@ -856,6 +857,10 @@ class ChatOrchestrator:
             "gemini-2.5-pro": (1.25, 10.00),
             "claude-sonnet-4": (3.00, 15.00),
             "claude-haiku-4": (0.80, 4.00),
+            "gpt-4.1-nano": (0.10, 0.40),
+            "gpt-5.4-nano": (0.20, 1.25),
+            "gpt-5.4-mini": (0.75, 4.50),
+            "gpt-5.4": (2.50, 15.00),
             "gpt-4o-mini": (0.15, 0.60),
             "gpt-4o": (2.50, 10.00),
         }

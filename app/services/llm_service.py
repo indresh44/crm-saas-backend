@@ -261,6 +261,8 @@ class LLMService:
             return llm_settings.google_api_key or llm_settings.llm_api_key or os.getenv("GOOGLE_API_KEY")
         if model_name.startswith("anthropic/"):
             return llm_settings.anthropic_api_key or llm_settings.llm_api_key or os.getenv("ANTHROPIC_API_KEY")
+        if model_name.startswith("openai/") or model_name.startswith("gpt"):
+            return os.getenv("OPENAI_API_KEY") or llm_settings.llm_api_key
         return llm_settings.llm_api_key
 
     def _map_exception(self, exc: Exception) -> LLMError:
