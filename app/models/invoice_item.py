@@ -1,9 +1,10 @@
 from decimal import Decimal
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Optional
 import uuid
 
 from pydantic import field_serializer
-from sqlalchemy import CheckConstraint
+from sqlalchemy import CheckConstraint, Column
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, Relationship, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
@@ -30,6 +31,7 @@ class InvoiceItemCreate(SQLModel):
     unit_price: Decimal = Field(decimal_places=2, max_digits=12)
     gst_percent: Decimal = Field(default=Decimal("0.0"), decimal_places=2, max_digits=5)
     sac_code: str | None = None
+    deliverables: Optional[list[str]] = None
 
     def build_model(self, invoice_id: uuid.UUID) -> "InvoiceItem":
         if self.gst_percent not in ALLOWED_GST_PERCENTS:
@@ -45,6 +47,7 @@ class InvoiceItemCreate(SQLModel):
             gst_percent=self.gst_percent,
             amount=self.quantity * self.unit_price,
             sac_code=self.sac_code,
+            deliverables=self.deliverables,
         )
 
 
@@ -60,11 +63,19 @@ class InvoiceItemRead(SQLModel):
     gst_percent: Decimal
     amount: Decimal
     sac_code: str | None
+    deliverables: Optional[list[str]] = None
     created_at: CreatedAtMixin.__annotations__["created_at"]
 
     @field_serializer("quantity", "unit_price", "gst_percent", "amount", when_used="json")
     def serialize_decimal_fields(self, value: Decimal) -> float:
         return float(value)
+
+
+class InvoiceItemUpdate(SQLModel):
+    """Fields that can be updated on an invoice item after creation."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    deliverables: Optional[list[str]] = None
 
 
 class InvoiceItem(UUIDPrimaryKeyMixin, CreatedAtMixin, SQLModel, table=True):
@@ -88,5 +99,9 @@ class InvoiceItem(UUIDPrimaryKeyMixin, CreatedAtMixin, SQLModel, table=True):
     gst_percent: Decimal = Field(default=Decimal("0.0"), decimal_places=2, max_digits=5)
     amount: Decimal = Field(decimal_places=2, max_digits=12)
     sac_code: str | None = Field(default=None, max_length=20, nullable=True)
+    deliverables: Optional[list[str]] = Field(
+        default=None,
+        sa_column=Column(JSONB, nullable=True),
+    )
 
     invoice: "Invoice" = Relationship(back_populates="items")

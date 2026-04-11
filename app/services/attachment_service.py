@@ -3,10 +3,12 @@ from typing import List
 from uuid import UUID
 
 from fastapi import HTTPException, status
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.models.attachment import Attachment
 from app.models.enums import AttachmentEntityType
+from app.models.invoice_item import InvoiceItem
 from app.models.payment import Payment
 from app.models.user import User
 from app.repositories.attachment_repository import (
@@ -71,6 +73,10 @@ def upload_and_save_attachment(
             business_id=business_id,
             item_id=entity_id,
         )
+    elif entity_type == AttachmentEntityType.INVOICE_ITEM:
+        entity = session.exec(
+            select(InvoiceItem).where(InvoiceItem.id == entity_id)
+        ).first()
 
     if entity is None:
         raise HTTPException(
@@ -84,6 +90,30 @@ def upload_and_save_attachment(
         content_type,
         folder=str(entity_type.value),
     )
+
+    # Auto-set sort_order and is_primary for orderable entity types
+    att_sort_order = 0
+    att_is_primary = False
+    if entity_type in (AttachmentEntityType.INVOICE_ITEM, AttachmentEntityType.CATALOG):
+        existing_max = session.exec(
+            select(func.coalesce(func.max(Attachment.sort_order), -1)).where(
+                Attachment.entity_type == entity_type,
+                Attachment.entity_id == entity_id,
+                Attachment.business_id == business_id,
+            )
+        ).one()
+        att_sort_order = existing_max + 1
+
+        existing_count = session.exec(
+            select(func.count(Attachment.id)).where(
+                Attachment.entity_type == entity_type,
+                Attachment.entity_id == entity_id,
+                Attachment.business_id == business_id,
+            )
+        ).one()
+        if existing_count == 0:
+            att_is_primary = True
+
     attachment = Attachment(
         business_id=business_id,
         entity_type=entity_type,
@@ -91,6 +121,8 @@ def upload_and_save_attachment(
         filename=filename,
         file_url=file_url,
         file_size=file_size,
+        sort_order=att_sort_order,
+        is_primary=att_is_primary,
     )
     session.add(attachment)
     session.commit()

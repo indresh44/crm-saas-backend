@@ -103,6 +103,7 @@ class AttachmentEntityType(str, Enum):
     CATALOG = "catalog"
     QUOTE = "quote"
     INVOICE = "invoice"
+    INVOICE_ITEM = "invoice_item"
     TASK = "task"
 
 

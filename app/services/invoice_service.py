@@ -4,11 +4,13 @@ from typing import List, Optional
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlmodel import SQLModel, Session
+from sqlmodel import SQLModel, Session, select
 
-from app.models.enums import InvoiceStatus, LeadActivityType
+from app.models.attachment import Attachment
+from app.models.catalog_item import CatalogItem
+from app.models.enums import AttachmentEntityType, InvoiceStatus, LeadActivityType
 from app.models.invoice import Invoice, InvoiceListItem
-from app.models.invoice_item import InvoiceItem, InvoiceItemCreate
+from app.models.invoice_item import InvoiceItem, InvoiceItemCreate, InvoiceItemUpdate
 from app.models.user import User
 from app.repositories.business_repository import get_business_by_id, increment_invoice_sequence
 from app.repositories.customer_repository import get_customer_by_id
@@ -54,9 +56,57 @@ def _build_invoice_items(
             gst_percent=item["gst_percent"],
             amount=item["amount"],
             sac_code=item.get("sac_code"),
+            deliverables=item.get("deliverables"),
         )
         for item in items
     ]
+
+
+def _copy_catalog_deliverables_and_attachments(
+    session: Session,
+    business_id: UUID,
+    invoice_items: List[InvoiceItem],
+) -> None:
+    """Copy deliverables and attachments from catalog items to invoice items.
+
+    Must be called after invoice items are flushed (so they have IDs).
+    """
+    for item in invoice_items:
+        if not item.catalog_item_id:
+            continue
+
+        catalog_item = session.get(CatalogItem, item.catalog_item_id)
+        if catalog_item is None:
+            continue
+
+        # Copy deliverables if the invoice item doesn't already have them
+        if item.deliverables is None and catalog_item.deliverables:
+            item.deliverables = list(catalog_item.deliverables)
+            session.add(item)
+
+        # Copy catalog attachments → invoice_item attachments
+        catalog_attachments = session.exec(
+            select(Attachment)
+            .where(
+                Attachment.entity_type == AttachmentEntityType.CATALOG,
+                Attachment.entity_id == item.catalog_item_id,
+                Attachment.business_id == business_id,
+            )
+            .order_by(Attachment.sort_order, Attachment.created_at)
+        ).all()
+
+        for att in catalog_attachments:
+            new_attachment = Attachment(
+                business_id=att.business_id,
+                entity_type=AttachmentEntityType.INVOICE_ITEM,
+                entity_id=item.id,
+                filename=att.filename,
+                file_url=att.file_url,
+                file_size=att.file_size,
+                sort_order=att.sort_order,
+                is_primary=att.is_primary,
+            )
+            session.add(new_attachment)
 
 
 def create_invoice(
@@ -118,9 +168,17 @@ def create_invoice(
     session.add(invoice)
     session.flush()
 
+    invoice_items: List[InvoiceItem] = []
     if data.items is not None:
-        items = _build_invoice_items(invoice_id=invoice.id, items=totals["items_with_totals"])
-        session.add_all(items)
+        invoice_items = _build_invoice_items(invoice_id=invoice.id, items=totals["items_with_totals"])
+        session.add_all(invoice_items)
+        session.flush()  # get invoice_item IDs before copying attachments
+
+        _copy_catalog_deliverables_and_attachments(
+            session=session,
+            business_id=current_user.business_id,
+            invoice_items=invoice_items,
+        )
 
     session.commit()
     session.refresh(invoice)
@@ -406,6 +464,52 @@ def generate_pdf_for_public(
         )
     except Exception:
         return None
+
+
+def update_invoice_item(
+    session: Session,
+    current_user: User,
+    invoice_id: UUID,
+    item_id: UUID,
+    payload: InvoiceItemUpdate,
+) -> InvoiceItem:
+    invoice = get_invoice_by_id(
+        session=session,
+        business_id=current_user.business_id,
+        invoice_id=invoice_id,
+    )
+    if invoice is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice not found",
+        )
+
+    if invoice.status != InvoiceStatus.DRAFT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Can only edit items on draft invoices",
+        )
+
+    item = session.exec(
+        select(InvoiceItem).where(
+            InvoiceItem.id == item_id,
+            InvoiceItem.invoice_id == invoice_id,
+        )
+    ).first()
+    if item is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice item not found",
+        )
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(item, key, value)
+
+    session.add(item)
+    session.commit()
+    session.refresh(item)
+    return item
 
 
 class InvoiceData(SQLModel):

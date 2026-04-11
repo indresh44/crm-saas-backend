@@ -26,6 +26,7 @@ def list_attachments_for_entity(
         .where(Attachment.business_id == business_id)
         .where(Attachment.entity_type == entity_type)
         .where(Attachment.entity_id == entity_id)
+        .order_by(Attachment.sort_order, Attachment.created_at)
     )
     return list(session.exec(statement).all())
 

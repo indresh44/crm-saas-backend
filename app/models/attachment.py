@@ -19,6 +19,8 @@ class AttachmentFields(SQLModel):
     filename: str
     file_url: str
     file_size: int
+    sort_order: int = 0
+    is_primary: bool = False
 
 
 class AttachmentBase(AttachmentFields):
@@ -45,3 +47,5 @@ class Attachment(AttachmentBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True
     entity_id: uuid.UUID = Field(index=True)
     filename: str
     file_size: int
+    sort_order: int = Field(default=0)
+    is_primary: bool = Field(default=False)

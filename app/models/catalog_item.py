@@ -2,7 +2,8 @@ from decimal import Decimal
 from typing import Optional
 import uuid
 
-from sqlalchemy import Enum as SaEnum, Index
+from sqlalchemy import Column, Enum as SaEnum, Index
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin, UpdatedAtMixin
@@ -21,6 +22,7 @@ class CatalogItemBase(SQLModel):
     default_rate: Decimal = Field(decimal_places=2, max_digits=12)
     gst_percent: Decimal = Field(default=Decimal("18.00"), decimal_places=2, max_digits=5)
     sac_code: Optional[str] = Field(default=None, max_length=20)
+    deliverables: Optional[list[str]] = None
 
 
 class CatalogItemCreate(SQLModel):
@@ -31,6 +33,7 @@ class CatalogItemCreate(SQLModel):
     default_rate: Decimal = Field(decimal_places=2, max_digits=12)
     gst_percent: Decimal = Field(default=Decimal("18.00"), decimal_places=2, max_digits=5)
     sac_code: Optional[str] = Field(default=None, max_length=20)
+    deliverables: Optional[list[str]] = None
 
 
 class CatalogItemUpdate(SQLModel):
@@ -42,6 +45,7 @@ class CatalogItemUpdate(SQLModel):
     gst_percent: Optional[Decimal] = Field(default=None, decimal_places=2, max_digits=5)
     sac_code: Optional[str] = Field(default=None, max_length=20)
     is_active: Optional[bool] = None
+    deliverables: Optional[list[str]] = None
 
 
 class CatalogItemRead(CatalogItemBase):
@@ -70,3 +74,7 @@ class CatalogItem(CatalogItemBase, UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedA
         ),
     )
     is_active: bool = Field(default=True, nullable=False)
+    deliverables: Optional[list[str]] = Field(
+        default=None,
+        sa_column=Column(JSONB, nullable=True),
+    )

@@ -5,10 +5,11 @@ from uuid import UUID
 import httpx
 from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.responses import StreamingResponse
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app.core.database import get_session
-from app.models.enums import InvoiceStatus
+from app.models.attachment import Attachment
+from app.models.enums import AttachmentEntityType, InvoiceStatus
 from app.models.invoice import InvoicePublicMeta
 from app.repositories.invoice_repository import get_invoice_public
 from app.services.invoice_service import generate_pdf_for_public
@@ -42,6 +43,75 @@ def get_invoice_meta(
         business_name=business_name,
         items_count=items_count,
     )
+
+
+@router.get("/invoices/{invoice_id}/detail")
+def get_invoice_detail(
+    invoice_id: UUID,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Return full invoice detail with items, deliverables, and photos for package view."""
+    result = get_invoice_public(session, invoice_id)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+
+    invoice, customer_name, business_name = result
+
+    # Fetch all attachments for this invoice's items in one query
+    item_ids = [item.id for item in invoice.items] if invoice.items else []
+    attachments_by_item: dict[str, list[dict]] = {}
+    if item_ids:
+        item_attachments = session.exec(
+            select(Attachment).where(
+                Attachment.entity_type == AttachmentEntityType.INVOICE_ITEM,
+                Attachment.entity_id.in_(item_ids),
+            ).order_by(Attachment.sort_order, Attachment.created_at)
+        ).all()
+
+        for att in item_attachments:
+            attachments_by_item.setdefault(str(att.entity_id), []).append({
+                "id": str(att.id),
+                "file_url": att.file_url,
+                "filename": att.filename,
+                "is_primary": att.is_primary,
+                "sort_order": att.sort_order,
+            })
+
+    items_response = []
+    for item in (invoice.items or []):
+        items_response.append({
+            "id": str(item.id),
+            "name": item.name,
+            "description": item.description,
+            "unit": item.unit,
+            "quantity": float(item.quantity),
+            "rate": float(item.unit_price),
+            "unit_price": float(item.unit_price),
+            "gst_percent": float(item.gst_percent),
+            "amount": float(item.amount),
+            "deliverables": item.deliverables,
+            "photos": attachments_by_item.get(str(item.id), []),
+        })
+
+    return {
+        "invoice": {
+            "id": str(invoice.id),
+            "invoice_number": invoice.invoice_number,
+            "status": invoice.status.value,
+            "subtotal": float(invoice.subtotal),
+            "tax_total": float(invoice.tax_total),
+            "total_amount": float(invoice.total_amount),
+            "due_date": invoice.due_date.isoformat() if invoice.due_date else None,
+            "issued_date": invoice.issued_date.isoformat() if invoice.issued_date else None,
+        },
+        "customer": {
+            "name": customer_name,
+        },
+        "business": {
+            "name": business_name,
+        },
+        "items": items_response,
+    }
 
 
 @router.get("/invoices/{invoice_id}/pdf")
