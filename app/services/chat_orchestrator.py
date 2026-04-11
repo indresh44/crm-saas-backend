@@ -27,6 +27,7 @@ from app.models.chat_metrics import ChatMessageMetrics, ToolCallMetric
 from app.services.chat_timer import ChatTimer
 from app.services.llm_service import LLMResponse, LLMService
 from app.services.suggestion_engine import SuggestionEngine
+from app.services.tool_definitions import select_tools_for_message
 from app.services.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -97,11 +98,14 @@ class ChatOrchestrator:
                 content=user_message,
             )
 
+        selected_tools = select_tools_for_message(parsed.clean_message)
+
         async with timer.track_async("context_assembly", "context"):
             assembled = await self.context_assembler.assemble(
                 business_id=self.current_user.business_id,
                 thread=thread,
                 user_message=user_message,
+                tools=selected_tools,
             )
         if parsed.mention_context:
             assembled.system_prompt = f"{assembled.system_prompt}\n\n{parsed.mention_context}"

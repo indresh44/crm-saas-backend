@@ -36,6 +36,7 @@ class ContextAssembler:
         business_id: UUID,
         thread: ChatThread,
         user_message: str,
+        tools: list[dict] | None = None,
     ) -> AssembledContext:
         if thread.context_type == "onboarding":
             return await self._assemble_onboarding(business_id, thread, user_message)
@@ -60,7 +61,7 @@ class ContextAssembler:
         return AssembledContext(
             system_prompt=system_prompt,
             messages=messages,
-            tools=get_tools_for_context(thread.context_type),
+            tools=tools or get_tools_for_context(thread.context_type),
             context_metadata={
                 "business_id": str(business_id),
                 "context_type": thread.context_type,

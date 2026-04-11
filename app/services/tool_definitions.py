@@ -1232,6 +1232,129 @@ ONBOARDING_TOOLS = [
 ]
 
 
+# --- Tool Router ---
+
+CORE_TOOLS = [
+    TOOL_SEARCH_CUSTOMER,
+    TOOL_SEARCH_LEAD,
+    TOOL_CREATE_LEAD,
+    TOOL_GET_CUSTOMER_DETAILS,
+    TOOL_GET_LEAD_DETAILS,
+]
+
+TOOL_GROUPS: dict[str, list[dict]] = {
+    "followup": [
+        TOOL_GET_TODAYS_FOLLOWUPS,
+        TOOL_GET_OVERDUE_FOLLOWUPS,
+        TOOL_GET_LEAD_FOLLOWUPS,
+        TOOL_SCHEDULE_FOLLOWUP,
+        TOOL_COMPLETE_FOLLOWUP,
+        TOOL_RESCHEDULE_FOLLOWUP,
+        TOOL_BULK_UPDATE_FOLLOWUPS,
+        TOOL_GET_STALE_FOLLOWUPS,
+    ],
+    "invoice": [
+        TOOL_PREPARE_INVOICE,
+        TOOL_LIST_CUSTOMER_INVOICES,
+        TOOL_QUERY_INVOICES,
+        TOOL_GET_INVOICE_DETAILS,
+        TOOL_UPDATE_INVOICE,
+        TOOL_GENERATE_INVOICE_PDF,
+        TOOL_GET_INVOICE_SHARE_LINK,
+        TOOL_GET_INVOICE_PAYMENT_HISTORY,
+        TOOL_LIST_OVERDUE_INVOICES,
+        TOOL_GET_UNPAID_INVOICE_SUMMARY,
+    ],
+    "payment": [
+        TOOL_RECORD_PAYMENT,
+        TOOL_LIST_CUSTOMER_PAYMENTS,
+        TOOL_GET_RECENT_PAYMENTS,
+        TOOL_GET_CUSTOMER_OUTSTANDING,
+        TOOL_LIST_CUSTOMERS_BY_OUTSTANDING,
+        TOOL_SEND_PAYMENT_REMINDER,
+    ],
+    "lead": [
+        TOOL_GET_LEAD_DETAILS,
+        TOOL_UPDATE_LEAD_STAGE,
+        TOOL_ADD_LEAD_NOTE,
+        TOOL_GET_LEAD_FOLLOWUPS,
+        TOOL_LIST_LEADS_BY_STAGE,
+        TOOL_GET_PIPELINE_SUMMARY,
+    ],
+    "analytics": [
+        TOOL_GET_DASHBOARD_SUMMARY,
+        TOOL_GET_BILLING_ANALYTICS,
+        TOOL_GET_REVENUE_SUMMARY,
+        TOOL_GET_PIPELINE_SUMMARY,
+        TOOL_LIST_CUSTOMERS_BY_OUTSTANDING,
+    ],
+    "catalog": [
+        TOOL_GET_CATALOG_ITEMS,
+    ],
+}
+
+KEYWORD_MAP: dict[str, list[str]] = {
+    "followup": [
+        "follow", "followup", "follow-up", "remind", "pending", "overdue",
+        "due today", "today", "schedule", "reschedule", "complete followup",
+        "stale", "upcoming", "yaad", "kal", "aaj",
+    ],
+    "invoice": [
+        "invoice", "bill", "estimate", "quote", "pdf", "share link",
+        "whatsapp", "unpaid", "draft", "gst", "tax", "inv-",
+    ],
+    "payment": [
+        "payment", "pay ", "paid", "collect", "outstanding", "balance",
+        "amount due", "receive", "upi", "cash", "paisa", "baaki", "baki",
+        "hisaab", "reminder",
+    ],
+    "lead": [
+        "lead", "enquiry", "inquiry", "stage", "pipeline", "move to",
+        "won", "lost", "note", "puchh",
+    ],
+    "analytics": [
+        "analytics", "summary", "revenue", "billing", "report", "dashboard",
+        "month", "compare", "how much", "total", "kitna", "kamai",
+    ],
+    "catalog": [
+        "catalog", "item", "product", "service", "rate", "price", "menu",
+    ],
+}
+
+
+def select_tools_for_message(user_message: str) -> list[dict]:
+    """Select relevant tools based on keywords in the user message."""
+    message_lower = user_message.lower()
+
+    matched_groups: set[str] = set()
+    for group_name, keywords in KEYWORD_MAP.items():
+        for keyword in keywords:
+            if keyword in message_lower:
+                matched_groups.add(group_name)
+                break
+
+    if not matched_groups:
+        return GLOBAL_TOOLS
+
+    seen_names: set[str] = set()
+    tools: list[dict] = []
+
+    for tool in CORE_TOOLS:
+        name = tool["function"]["name"]
+        if name not in seen_names:
+            seen_names.add(name)
+            tools.append(tool)
+
+    for group in matched_groups:
+        for tool in TOOL_GROUPS[group]:
+            name = tool["function"]["name"]
+            if name not in seen_names:
+                seen_names.add(name)
+                tools.append(tool)
+
+    return tools
+
+
 def get_tools_for_context(context_type: str) -> list[dict]:
     if context_type == "onboarding":
         return ONBOARDING_TOOLS
