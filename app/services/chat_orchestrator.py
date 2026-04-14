@@ -255,7 +255,7 @@ class ChatOrchestrator:
 
         if action_type == "confirm_create_lead":
             result = self._confirm_create_lead(confirmed_data)
-            reply = f"✓ Lead created successfully. Lead ID: {result['lead_id']}"
+            reply = f"✓ Lead created successfully. [View lead details](/leads/{result['lead_id']})"
         elif action_type == "confirm_update_lead_stage":
             result = self._confirm_update_lead_stage(confirmed_data)
             reply = f"✓ Lead moved to {result['stage_name']}."
