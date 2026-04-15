@@ -148,20 +148,6 @@ class ContextAssembler:
         def load() -> list[dict]:
             with Session(engine) as session:
                 messages: list[dict] = []
-                if thread.summary:
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": f"Previous conversation context: {thread.summary}",
-                        }
-                    )
-                    messages.append(
-                        {
-                            "role": "assistant",
-                            "content": "Understood, I have the context of our previous conversation.",
-                        }
-                    )
-
                 recent_messages = chat_message_repo.get_recent(session, thread.id, limit=10)
                 skipped_current_user = False
                 for message in recent_messages:

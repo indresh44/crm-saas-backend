@@ -11,8 +11,6 @@ from fastapi import HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session
 
-from app.config.llm_config import llm_settings
-from app.core.database import engine
 from app.models.chat import ChatThread
 from app.models.customer import CustomerCreateRequest
 from app.models.lead import LeadCreate
@@ -178,7 +176,6 @@ class ChatOrchestrator:
                 )
 
         _, suggestions = await asyncio.gather(_save_assistant_msg(), _get_suggestions())
-        asyncio.create_task(self._maybe_summarize(thread.id))
         pdf_payload = self._extract_pdf_payload(tool_traces)
 
         metrics = None
@@ -197,50 +194,6 @@ class ChatOrchestrator:
             pdf=pdf_payload,
             metrics=metrics,
         )
-
-    async def _maybe_summarize(self, thread_id: int) -> None:
-        try:
-            with Session(engine) as session:
-                message_count = chat_message_repo.count(session, thread_id)
-                if message_count <= 10:
-                    return
-
-                older_messages = chat_message_repo.get_older_than_recent(
-                    session=session,
-                    thread_id=thread_id,
-                    recent_limit=10,
-                )
-                if not older_messages:
-                    return
-
-                thread = chat_thread_repo.get_by_id(session, thread_id)
-                if thread is None:
-                    return
-
-                history_text = "\n".join(
-                    f"{message.role}: {message.content}"
-                    for message in older_messages
-                    if message.content
-                )
-                summary_input = history_text
-                if thread.summary:
-                    summary_input = f"Existing summary:\n{thread.summary}\n\nNew history:\n{history_text}"
-
-                response = await self.llm_service.chat(
-                    system_prompt=(
-                        "Summarize this conversation history into a brief paragraph. "
-                        "Focus on what was discussed, what actions were taken, what decisions were made, "
-                        "and any pending items. Include specific names, amounts, and IDs mentioned. "
-                        "Keep it under 150 words."
-                    ),
-                    messages=[{"role": "user", "content": summary_input}],
-                    model=llm_settings.summarization_model,
-                )
-                if response.content:
-                    chat_thread_repo.update_summary(session, thread_id, response.content)
-                    chat_message_repo.delete_older_than_recent(session, thread_id, recent_limit=10)
-        except Exception as exc:
-            logger.error("Chat summarization failed for thread=%s error=%s", thread_id, str(exc), exc_info=True)
 
     async def confirm_action(
         self,
