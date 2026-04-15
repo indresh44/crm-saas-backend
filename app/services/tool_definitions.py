@@ -2,7 +2,7 @@ TOOL_GET_TODAYS_FOLLOWUPS = {
     "type": "function",
     "function": {
         "name": "get_todays_followups",
-        "description": "Get all follow-ups scheduled for today for this business. Use when the user asks about today's tasks, pending follow-ups, or what they need to do today.",
+        "description": "Get follow-ups scheduled for today only (due_date = today). Call this when the user asks about today's follow-ups, today's tasks, or 'aaj ke follow-up'. If this returns an empty list, report that today has no follow-ups — do NOT call get_overdue_followups unless the user explicitly asks about overdue or missed items.",
         "parameters": {
             "type": "object",
             "properties": {},
@@ -15,7 +15,7 @@ TOOL_GET_OVERDUE_FOLLOWUPS = {
     "type": "function",
     "function": {
         "name": "get_overdue_followups",
-        "description": "Get all follow-ups that are past their scheduled date and still pending. Use when the user asks about overdue items, missed follow-ups, or pending tasks from previous days.",
+        "description": "Get follow-ups whose due_date is before today and still not completed. Call this ONLY when the user explicitly asks about overdue, missed, late, or past follow-ups (e.g. 'overdue', 'purane', 'missed', 'late follow-ups'). Do NOT call this when the user asks about 'today's follow-ups' or just 'follow-ups' — use get_todays_followups for those.",
         "parameters": {
             "type": "object",
             "properties": {},
@@ -1322,14 +1322,23 @@ KEYWORD_MAP: dict[str, list[str]] = {
 }
 
 
-def select_tools_for_message(user_message: str) -> list[dict]:
-    """Select relevant tools based on keywords in the user message."""
-    message_lower = user_message.lower()
+def select_tools_for_message(
+    user_message: str,
+    recent_user_messages: list[str] | None = None,
+) -> list[dict]:
+    """Select relevant tools based on keywords in the current message and
+    the last 1-2 prior user messages. Sticky intent: if the previous turn
+    was 'create a lead' and the current turn is the data reply
+    ('naam: ramesh, phone: ...'), the lead group stays active."""
+    parts = [user_message]
+    if recent_user_messages:
+        parts.extend(recent_user_messages[-2:])
+    combined = " \n ".join(parts).lower()
 
     matched_groups: set[str] = set()
     for group_name, keywords in KEYWORD_MAP.items():
         for keyword in keywords:
-            if keyword in message_lower:
+            if keyword in combined:
                 matched_groups.add(group_name)
                 break
 

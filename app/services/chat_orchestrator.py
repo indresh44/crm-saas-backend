@@ -25,7 +25,7 @@ from app.models.chat_metrics import ChatMessageMetrics, ToolCallMetric
 from app.services.chat_timer import ChatTimer
 from app.services.llm_service import LLMResponse, LLMService
 from app.services.suggestion_engine import SuggestionEngine
-from app.services.tool_definitions import select_tools_for_message
+from app.services.tool_definitions import get_tools_for_context, select_tools_for_message
 from app.services.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -96,17 +96,28 @@ class ChatOrchestrator:
                 content=user_message,
             )
 
-        selected_tools = select_tools_for_message(parsed.clean_message)
-
         async with timer.track_async("context_assembly", "context"):
             assembled = await self.context_assembler.assemble(
                 business_id=self.current_user.business_id,
                 thread=thread,
                 user_message=user_message,
-                tools=selected_tools,
             )
         if parsed.mention_context:
             assembled.system_prompt = f"{assembled.system_prompt}\n\n{parsed.mention_context}"
+
+        if thread.context_type == "onboarding":
+            selected_tools = get_tools_for_context("onboarding")
+        else:
+            prior_user_messages = [
+                m["content"]
+                for m in assembled.messages
+                if m.get("role") == "user" and isinstance(m.get("content"), str)
+            ]
+            selected_tools = select_tools_for_message(
+                parsed.clean_message,
+                recent_user_messages=prior_user_messages,
+            )
+
         assembled.messages.append({"role": "user", "content": parsed.clean_message})
 
         tool_executor = ToolExecutor(session=self.session, current_user=self.current_user)
@@ -142,7 +153,7 @@ class ChatOrchestrator:
         llm_response = await self.llm_service.chat_with_tool_loop(
             system_prompt=assembled.system_prompt,
             messages=assembled.messages,
-            tools=assembled.tools,
+            tools=selected_tools,
             tool_executor=_tool_callback,
             timer=timer,
         )
