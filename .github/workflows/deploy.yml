@@ -1,0 +1,25 @@
+name: Deploy to Linode
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.LINODE_HOST }}
+          username: ${{ secrets.LINODE_USER }}
+          key: ${{ secrets.LINODE_SSH_KEY }}
+          script: |
+            cd ~/workspace/crm-saas-backend
+            git pull origin main
+            source .venv/bin/activate
+            pip install -r requirements.txt
+            alembic upgrade head
+            pm2 restart fastapi-app
