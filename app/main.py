@@ -10,6 +10,7 @@ from app.api.v1.customers import router as customers_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.users import router as users_router
 from app.api.v1.invoices import router as invoices_router
+from app.api.v1.invoice_templates import router as invoice_templates_router
 from app.api.v1.lead_activities import router as lead_activities_router
 from app.api.v1.lead_followups import router as lead_followups_router
 from app.api.v1.leads import router as leads_router
@@ -68,6 +69,7 @@ app.include_router(pipeline_stages_router, prefix="/api/v1", tags=["pipeline-sta
 app.include_router(quotes_router, prefix="/api/v1", tags=["quotes"])
 app.include_router(bookings_router, prefix="/api/v1", tags=["bookings"])
 app.include_router(invoices_router, prefix="/api/v1", tags=["invoices"])
+app.include_router(invoice_templates_router, prefix="/api/v1", tags=["invoice-templates"])
 app.include_router(payments_router, prefix="/api/v1", tags=["payments"])
 app.include_router(tasks_router, prefix="/api/v1", tags=["tasks"])
 app.include_router(attachments_router, prefix="/api/v1", tags=["attachments"])

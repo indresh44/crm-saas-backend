@@ -821,8 +821,10 @@ class ChatOrchestrator:
         COST_TABLE: dict[str, tuple[float, float]] = {
             "gemini-2.5-flash": (0.15, 0.60),
             "gemini-3-flash": (0.15, 0.60),
+            "gemini-3-flash-preview": (0.50, 1.00),
             "gemini-2.0-flash": (0.10, 0.40),
             "gemini-2.5-pro": (1.25, 10.00),
+            "gemini-3.1-flash-lite-preview": (0.25, 0.50),
             "claude-sonnet-4": (3.00, 15.00),
             "claude-haiku-4": (0.80, 4.00),
             "gpt-4.1-nano": (0.10, 0.40),
