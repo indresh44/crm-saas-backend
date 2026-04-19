@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.attachments import router as attachments_router
@@ -53,6 +54,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(ValueError)
+async def value_error_handler(_request: Request, exc: ValueError) -> JSONResponse:
+    """
+    Convert uncaught ValueErrors into well-formed 400 JSON responses
+    so frontends see a readable message instead of an opaque 500/CORS failure.
+    """
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
 
 app.include_router(auth_router, prefix="/api/v1", tags=["auth"])
 app.include_router(businesses_router, prefix="/api/v1", tags=["businesses"])

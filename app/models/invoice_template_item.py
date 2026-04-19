@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 class InvoiceTemplateItemCreate(SQLModel):
     name: str = ""
-    description: str
+    description: str = ""
     unit: str = "piece"
     catalog_item_id: uuid.UUID | None = None
     quantity: Decimal = Field(default=Decimal("1"), decimal_places=2, max_digits=12)
