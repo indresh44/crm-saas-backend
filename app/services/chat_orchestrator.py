@@ -11,12 +11,14 @@ from fastapi import HTTPException, status
 from pydantic import BaseModel
 from sqlmodel import Session
 
+from app.core.time_utils import combine_local
 from app.models.chat import ChatThread
 from app.models.customer import CustomerCreateRequest
 from app.models.lead import LeadCreate
 from app.models.lead_followup import LeadFollowupCreate, LeadFollowupUpdate
 from app.models.user import User
 from app.repositories import chat_message_repo, chat_thread_repo
+from app.repositories.business_repository import get_business_by_id
 from app.services import customer_service, lead_followup_service, lead_service, pipeline_service
 from app.services import invoice_service, lead_activity_service, payment_service
 from app.services.chat.mention_parser import resolve_mentions
@@ -63,6 +65,13 @@ class ChatOrchestrator:
         self.current_user = current_user
         self.context_assembler = context_assembler or ContextAssembler()
         self.llm_service = llm_service or LLMService()
+
+    def _business_timezone(self) -> str:
+        """Return the business's configured IANA timezone (fallback: Asia/Kolkata)."""
+        business = get_business_by_id(self.session, self.current_user.business_id)
+        if business is None:
+            return "Asia/Kolkata"
+        return business.timezone or "Asia/Kolkata"
 
     async def handle_message(
         self,
@@ -401,12 +410,22 @@ class ChatOrchestrator:
         }
 
     def _confirm_schedule_followup(self, confirmed_data: dict[str, Any]) -> dict[str, Any]:
+        # Accept separate scheduled_date + scheduled_time from the frontend
+        # and combine them in the business's local zone. An explicit
+        # scheduled_at (with offset) is still supported for LLM-driven flows.
+        tz = self._business_timezone()
         scheduled_at_raw = confirmed_data.get("scheduled_at")
         if scheduled_at_raw:
             scheduled_at = datetime.fromisoformat(str(scheduled_at_raw))
         else:
-            scheduled_date = datetime.fromisoformat(f"{confirmed_data['scheduled_date']}T09:00:00+00:00")
-            scheduled_at = scheduled_date
+            parsed_date = date.fromisoformat(str(confirmed_data["scheduled_date"]))
+            time_str = str(confirmed_data.get("scheduled_time") or "").strip()
+            if time_str:
+                hour_str, _, minute_str = time_str.partition(":")
+                parsed_time = time(hour=int(hour_str), minute=int(minute_str or "0"))
+            else:
+                parsed_time = time(hour=9)
+            scheduled_at = combine_local(parsed_date, parsed_time, tz)
 
         followup = lead_followup_service.create_followup(
             session=self.session,
@@ -450,10 +469,14 @@ class ChatOrchestrator:
         new_time = str(confirmed_data.get("new_time") or "").strip()
         reason = str(confirmed_data.get("reason") or "").strip()
 
+        tz = self._business_timezone()
+        parsed_date = date.fromisoformat(new_date)
         if new_time:
-            new_scheduled_at = datetime.fromisoformat(f"{new_date}T{new_time}:00+00:00")
+            hour_str, _, minute_str = new_time.partition(":")
+            parsed_time = time(hour=int(hour_str), minute=int(minute_str or "0"))
         else:
-            new_scheduled_at = datetime.fromisoformat(f"{new_date}T09:00:00+00:00")
+            parsed_time = time(hour=9)
+        new_scheduled_at = combine_local(parsed_date, parsed_time, tz)
 
         followup = lead_followup_service.update_followup(
             session=self.session,
@@ -506,10 +529,14 @@ class ChatOrchestrator:
                         ),
                     )
                 elif action == "reschedule":
+                    tz = self._business_timezone()
+                    parsed_reschedule_date = date.fromisoformat(reschedule_date)
                     if reschedule_time:
-                        new_dt = datetime.fromisoformat(f"{reschedule_date}T{reschedule_time}:00+00:00")
+                        hour_str, _, minute_str = reschedule_time.partition(":")
+                        parsed_reschedule_time = time(hour=int(hour_str), minute=int(minute_str or "0"))
                     else:
-                        new_dt = datetime.fromisoformat(f"{reschedule_date}T09:00:00+00:00")
+                        parsed_reschedule_time = time(hour=9)
+                    new_dt = combine_local(parsed_reschedule_date, parsed_reschedule_time, tz)
                     lead_followup_service.update_followup(
                         session=self.session,
                         current_user=self.current_user,

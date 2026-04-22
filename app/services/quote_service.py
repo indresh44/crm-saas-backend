@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlmodel import SQLModel, Session
 
+from app.core.time_utils import today_in
 from app.models.enums import InvoiceStatus, LeadActivityType, QuoteStatus
 from app.models.invoice import Invoice
 from app.models.invoice_item import InvoiceItem
@@ -258,13 +259,13 @@ def convert_quote_to_invoice(
             detail="Lead not found for current business",
         )
 
-    today = date.today()
     business = get_business_by_id(session, current_user.business_id)
     if business is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Business not found",
         )
+    today = today_in(business.timezone or "Asia/Kolkata")
 
     seq = increment_invoice_sequence(session, current_user.business_id)
     prefix = (business.invoice_prefix or "INV").strip() or "INV"

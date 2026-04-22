@@ -10,6 +10,7 @@ from sqlmodel import Session
 from app.config.prompts.onboarding_prompt import ONBOARDING_PROMPT
 from app.config.prompts.system_prompt import SYSTEM_PROMPT
 from app.core.database import engine
+from app.core.time_utils import format_local, now_in
 from app.models.chat import ChatThread
 from app.models.enums import UserRole
 from app.models.user import User
@@ -40,7 +41,7 @@ class ContextAssembler:
         if thread.context_type == "onboarding":
             return await self._assemble_onboarding(business_id, thread, user_message)
 
-        (business_context, preferred_language), pipeline_context, messages = await asyncio.gather(
+        (business_context, preferred_language, timezone), pipeline_context, messages = await asyncio.gather(
             self._build_business_context(business_id),
             self._build_pipeline_stages(business_id),
             self._build_messages(thread, user_message=user_message),
@@ -49,7 +50,7 @@ class ContextAssembler:
         system_prompt = "\n\n".join(
             [
                 SYSTEM_PROMPT.format(
-                    today_date=date.today().strftime("%d %b %Y"),
+                    today_date=format_local(now_in(timezone), timezone),
                     preferred_language=preferred_language,
                 ),
                 business_context,
@@ -88,15 +89,17 @@ class ContextAssembler:
                     "business_type": business.business_type or "not set",
                     "preferred_language": business.preferred_language or "hinglish",
                     "language_chosen": "yes" if msg_count > 0 else "no",
+                    "timezone": business.timezone or "Asia/Kolkata",
                 }
 
         biz_data, messages = await asyncio.gather(
             asyncio.to_thread(load_business),
             self._build_messages(thread, user_message=user_message),
         )
+        tz = biz_data.pop("timezone")
 
         system_prompt = ONBOARDING_PROMPT.format(
-            today_date=date.today().strftime("%d %b %Y"),
+            today_date=format_local(now_in(tz), tz),
             **biz_data,
         )
 
@@ -112,8 +115,8 @@ class ContextAssembler:
             },
         )
 
-    async def _build_business_context(self, business_id: UUID) -> tuple[str, str]:
-        def load() -> tuple[str, str]:
+    async def _build_business_context(self, business_id: UUID) -> tuple[str, str, str]:
+        def load() -> tuple[str, str, str]:
             with Session(engine) as session:
                 business = business_service.get_business(session, business_id)
                 context = "\n".join(
@@ -125,7 +128,9 @@ class ContextAssembler:
                         f"Invoice prefix: {business.invoice_prefix or 'INV'}",
                     ]
                 )
-                return context, getattr(business, "preferred_language", "hinglish") or "hinglish"
+                preferred_language = getattr(business, "preferred_language", "hinglish") or "hinglish"
+                timezone = getattr(business, "timezone", "Asia/Kolkata") or "Asia/Kolkata"
+                return context, preferred_language, timezone
 
         return await asyncio.to_thread(load)
 

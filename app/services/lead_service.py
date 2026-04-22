@@ -4,9 +4,11 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
+from app.core.time_utils import day_bounds_utc, today_in
 from app.models.enums import LeadActivityType
 from app.models.lead import Lead, LeadActivity, LeadCreate, LeadRead, LeadUpdate
 from app.models.user import User
+from app.repositories.business_repository import get_business_by_id
 from app.repositories.lead_repository import (
     create_lead as repo_create_lead,
     create_lead_activity,
@@ -16,6 +18,13 @@ from app.repositories.lead_repository import (
     move_lead_stage as repo_move_lead_stage,
     update_lead as repo_update_lead,
 )
+
+
+def _business_timezone(session: Session, business_id: UUID) -> str:
+    business = get_business_by_id(session, business_id)
+    if business is None:
+        return "Asia/Kolkata"
+    return business.timezone or "Asia/Kolkata"
 
 
 def create_lead(session: Session, current_user: User, data: LeadCreate) -> Lead:
@@ -88,8 +97,8 @@ def get_todays_followups(
     business_id: UUID,
     customer_id: UUID | None = None,
 ) -> list[Lead]:
-    today_start = datetime.combine(datetime.now(timezone.utc).date(), time.min, tzinfo=timezone.utc)
-    today_end = today_start + timedelta(days=1)
+    tz = _business_timezone(session, business_id)
+    today_start, today_end = day_bounds_utc(today_in(tz), tz)
     statement = select(Lead).where(
         Lead.business_id == business_id,
         Lead.follow_up_at.is_not(None),

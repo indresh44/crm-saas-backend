@@ -7,12 +7,14 @@ from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
 from app.core.phone import normalize_phone_value
+from app.core.time_utils import today_in
 from app.models.booking import Booking
 from app.models.customer import Customer, CustomerCreateRequest, CustomerUpdate
 from app.models.invoice import Invoice
 from app.models.lead import Lead
 from app.models.payment import Payment
 from app.models.user import User
+from app.repositories.business_repository import get_business_by_id
 from app.repositories.customer_repository import (
     create_customer as repo_create_customer,
     get_customer_by_phone as repo_get_customer_by_phone,
@@ -176,7 +178,9 @@ def get_customer_outstanding(
         for payment in payments:
             payments_by_invoice_id[payment.invoice_id] = payments_by_invoice_id.get(payment.invoice_id, Decimal("0")) + payment.amount
 
-        today = datetime.now(timezone.utc).date()
+        business = get_business_by_id(session, business_id)
+        tz = (business.timezone if business else None) or "Asia/Kolkata"
+        today = today_in(tz)
         overdue_invoices = sum(
             1
             for invoice in invoices.values()

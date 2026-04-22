@@ -11,11 +11,13 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from sqlmodel import Session
 
+from app.core.time_utils import combine_local, today_in
 from app.models.enums import InvoiceStatus, PaymentMethod, UserRole
 from app.models.lead import LeadCreate
 from app.models.lead_followup import LeadFollowupCreate, LeadFollowupUpdate
 from app.models.payment import PaymentCreate
 from app.models.user import User
+from app.repositories.business_repository import get_business_by_id
 from app.services import catalog_item_service, customer_service, dashboard_service, invoice_service
 from app.services import lead_followup_service, lead_service, payment_service, pipeline_service
 
@@ -77,6 +79,13 @@ class ToolExecutor:
     def __init__(self, session: Session, current_user: User) -> None:
         self.session = session
         self.current_user = current_user
+
+    def _business_timezone(self) -> str:
+        """Return the business's configured IANA timezone (fallback: Asia/Kolkata)."""
+        business = get_business_by_id(self.session, self.current_user.business_id)
+        if business is None:
+            return "Asia/Kolkata"
+        return business.timezone or "Asia/Kolkata"
 
     async def execute(
         self,
@@ -406,7 +415,7 @@ class ToolExecutor:
 
         lines: list[str] = []
         items: list[dict[str, Any]] = []
-        today = date.today()
+        today = today_in(self._business_timezone())
         for followup in followups:
             customer_name, lead_title = self._get_followup_display_context(followup.lead_id)
             days_old = max(0, (today - followup.scheduled_at.date()).days)
@@ -529,7 +538,7 @@ class ToolExecutor:
         total_collected = 0.0
         total_pending = 0.0
         overdue_count = 0
-        today = date.today()
+        today = today_in(self._business_timezone())
         for invoice, total_amount, amount_paid, balance_due in filtered:
             total_billed += total_amount
             total_collected += amount_paid
@@ -1000,11 +1009,13 @@ class ToolExecutor:
         lead = lead_service.get_lead(self.session, self.current_user, lead_id)
         scheduled_date = self._parse_date(self._require_str(args, "scheduled_date"))
         note = args.get("note")
+        # 9 AM default is in the business's local zone, not UTC.
+        scheduled_at = combine_local(scheduled_date, time(hour=9), self._business_timezone())
         payload = {
             "lead_id": str(lead.id),
             "lead_title": lead.title,
             "scheduled_date": scheduled_date.isoformat(),
-            "scheduled_at": datetime.combine(scheduled_date, time(hour=9), tzinfo=timezone.utc).isoformat(),
+            "scheduled_at": scheduled_at.isoformat(),
             "note": note,
         }
         return {

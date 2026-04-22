@@ -2,6 +2,7 @@ from datetime import datetime
 import re
 from typing import Optional
 import uuid
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import field_validator
 from sqlmodel import Field, SQLModel
@@ -9,6 +10,21 @@ from sqlmodel import Field, SQLModel
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
 
 GSTIN_REGEX = re.compile(r"^[0-9A-Z]{15}$")
+
+
+def _validate_iana_timezone(value: str) -> str:
+    """Validate that `value` is an IANA timezone name parseable by zoneinfo."""
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("Timezone is required")
+    try:
+        ZoneInfo(normalized)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(
+            f"'{normalized}' is not a valid IANA timezone "
+            "(expected e.g. 'Asia/Kolkata', 'America/New_York')"
+        ) from exc
+    return normalized
 
 
 class BusinessBase(SQLModel):
@@ -21,6 +37,7 @@ class BusinessBase(SQLModel):
     onboarding_status: str = Field(default="pending", max_length=20)
     onboarding_method: Optional[str] = Field(default=None, max_length=10, nullable=True)
     preferred_language: str = Field(default="hinglish", max_length=20)
+    timezone: str = Field(default="Asia/Kolkata", max_length=50)
     invoice_sequence: int = Field(default=0, nullable=False)
     email: Optional[str] = Field(default=None, max_length=320, nullable=True)
     address: Optional[str] = Field(default=None, max_length=500, nullable=True)
@@ -64,6 +81,7 @@ class BusinessSettingsUpdate(SQLModel):
     name: str | None = None
     phone: str | None = None
     preferred_language: str | None = None
+    timezone: str | None = None
     email: str | None = None
     address: str | None = None
     city: str | None = None
@@ -92,6 +110,16 @@ class BusinessSettingsUpdate(SQLModel):
         if normalized not in {"hinglish", "english", "hindi"}:
             raise ValueError("Language must be 'hinglish', 'english', or 'hindi'")
         return normalized
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        normalized = value.strip()
+        if not normalized:
+            return None
+        return _validate_iana_timezone(normalized)
 
     @field_validator("gst_number")
     @classmethod
@@ -146,6 +174,7 @@ class BusinessSettingsRead(SQLModel):
     onboarding_status: str
     onboarding_method: str | None
     preferred_language: str
+    timezone: str
     email: str | None
     address: str | None
     city: str | None

@@ -6,9 +6,11 @@ from uuid import UUID
 
 from sqlmodel import Session
 
+from app.core.time_utils import today_in
 from app.models.dashboard import OverdueInvoiceSummary, PaymentSummaryRead
 from app.models.lead import LeadRead
 from app.models.user import User
+from app.repositories.business_repository import get_business_by_id
 from app.repositories.dashboard_repository import (
     fetch_monthly_collections,
     fetch_outstanding_and_overdue,
@@ -25,7 +27,9 @@ def get_payment_summary(
     session: Session,
     business_id: UUID,
 ) -> PaymentSummaryRead:
-    today = date.today()
+    business = get_business_by_id(session, business_id)
+    tz = (business.timezone if business else None) or "Asia/Kolkata"
+    today = today_in(tz)
     collections_this_month, collections_last_month = fetch_monthly_collections(
         session=session,
         business_id=business_id,

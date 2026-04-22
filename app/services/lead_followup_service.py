@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
+from app.core.time_utils import day_bounds_utc, format_local, today_in
 from app.models.enums import LeadActivityType
 from app.models.lead import Lead, LeadActivity
 from app.models.lead_followup import (
@@ -15,6 +16,7 @@ from app.models.lead_followup import (
     LeadFollowupUpdate,
 )
 from app.models.user import User
+from app.repositories.business_repository import get_business_by_id
 from app.repositories.lead_followup_repository import (
     create_lead_followup as repo_create_lead_followup,
     get_lead_followup_by_id,
@@ -25,6 +27,14 @@ from app.repositories.lead_followup_repository import (
     update_lead_followup as repo_update_lead_followup,
 )
 from app.repositories.lead_repository import create_lead_activity, get_lead_by_id
+
+
+def _business_timezone(session: Session, business_id: UUID) -> str:
+    """Fetch the business's configured IANA timezone. Falls back to the helper default if absent."""
+    business = get_business_by_id(session, business_id)
+    if business is None:
+        return "Asia/Kolkata"
+    return business.timezone or "Asia/Kolkata"
 
 
 def _get_lead_for_business(
@@ -97,10 +107,11 @@ def create_followup(
         created_by=current_user.id,
     )
     result = repo_create_lead_followup(session, followup)
+    tz = _business_timezone(session, current_user.business_id)
     create_lead_activity(session, LeadActivity(
         lead_id=lead.id,
         type=LeadActivityType.FOLLOWUP_SCHEDULED,
-        description=f"Follow-up scheduled for {result.scheduled_at.strftime('%d %b %Y')}"
+        description=f"Follow-up scheduled for {format_local(result.scheduled_at, tz)}"
                    + (f" — {result.note}" if result.note else ""),
         created_by=current_user.id,
     ))
@@ -168,8 +179,8 @@ def list_todays_followups(
     session: Session,
     current_user: User,
 ) -> List[LeadFollowupTodayRead]:
-    start_at = datetime.combine(datetime.now(timezone.utc).date(), time.min, tzinfo=timezone.utc)
-    end_at = start_at + timedelta(days=1)
+    tz = _business_timezone(session, current_user.business_id)
+    start_at, end_at = day_bounds_utc(today_in(tz), tz)
 
     followups = list_followups_for_datetime_range(
         session=session,
@@ -253,7 +264,8 @@ def update_followup(
         desc = "Follow-up cancelled" + (f" — {result.note}" if result.note else "")
     elif data.scheduled_at is not None and data.scheduled_at != old_scheduled_at:
         activity_type = LeadActivityType.FOLLOWUP_RESCHEDULED
-        desc = f"Follow-up rescheduled to {result.scheduled_at.strftime('%d %b %Y')}" + (f" — {result.note}" if result.note else "")
+        tz = _business_timezone(session, current_user.business_id)
+        desc = f"Follow-up rescheduled to {format_local(result.scheduled_at, tz)}" + (f" — {result.note}" if result.note else "")
 
     if activity_type:
         create_lead_activity(session, LeadActivity(
