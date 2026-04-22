@@ -20,17 +20,25 @@ from app.models.auth_identity import AuthIdentity
 from app.models.auth_schemas import AuthResponse, LoginRequest, RegisterRequest
 from app.models.business import Business
 from app.models.enums import AuthProvider, UserRole
+from app.models.password_reset_token import PasswordResetToken
 from app.models.refresh_token import RefreshToken
 from app.models.user import User
 from app.repositories.auth_repository import (
+    create_password_reset_token,
     create_refresh_token,
+    get_email_identity_for_user,
     get_identity_by_provider,
+    get_password_reset_token_by_hash,
+    get_recent_unused_reset_token,
     get_refresh_token_by_hash,
+    get_user_by_email,
+    mark_password_reset_token_used,
     revoke_all_user_tokens,
     revoke_refresh_token,
 )
 from app.repositories.business_repository import get_business_by_id
 from app.repositories.user_repository import get_user_by_id
+from app.services.email_service import send_password_reset_email
 from app.services.pipeline_service import create_default_pipeline, ensure_pipeline_exists
 
 
@@ -278,3 +286,114 @@ def logout_all_devices(
 ) -> int:
     """Revoke all refresh tokens for a user."""
     return revoke_all_user_tokens(session, user_id)
+
+
+def request_password_reset(
+    session: Session,
+    email: str,
+) -> None:
+    """
+    Generate a reset token (if the email maps to a real user with an EMAIL
+    identity) and send it via the email service. Always returns None — the
+    caller must respond generically to avoid leaking whether the email exists.
+
+    Rate-limited per email: if an unused, non-expired token was issued for
+    this user within the last PASSWORD_RESET_REQUEST_COOLDOWN_SECONDS, we
+    no-op (don't resend).
+    """
+    print(f"[auth] password_reset_requested email={email}", flush=True)
+
+    normalized = email.strip().lower()
+    user = get_user_by_email(session, normalized)
+    if user is None:
+        print(
+            f"[auth] no user found for email={normalized} — skipping email send "
+            f"(this is expected if the address doesn't match any account)",
+            flush=True,
+        )
+        return
+    if not user.is_active:
+        print(
+            f"[auth] user {user.id} is inactive — skipping email send",
+            flush=True,
+        )
+        return
+
+    email_identity = get_email_identity_for_user(session, user.id)
+    if email_identity is None:
+        # User has no email+password identity (e.g. Google-only). Stay silent.
+        print(
+            f"[auth] user {user.id} has no EMAIL identity — skipping email send",
+            flush=True,
+        )
+        return
+
+    existing = get_recent_unused_reset_token(
+        session,
+        user.id,
+        settings.PASSWORD_RESET_REQUEST_COOLDOWN_SECONDS,
+    )
+    if existing is not None:
+        # Rate-limited — silently drop.
+        print(
+            f"[auth] rate-limited: user {user.id} already has an unused reset "
+            f"token issued within the last "
+            f"{settings.PASSWORD_RESET_REQUEST_COOLDOWN_SECONDS}s — skipping",
+            flush=True,
+        )
+        return
+
+    raw_token = generate_refresh_token()  # 64-byte URL-safe random; fine for resets
+    token_hash = hash_refresh_token(raw_token)  # SHA-256
+
+    record = PasswordResetToken(
+        user_id=user.id,
+        token_hash=token_hash,
+        expires_at=datetime.now(timezone.utc)
+        + timedelta(minutes=settings.PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
+    )
+    create_password_reset_token(session, record)
+
+    reset_url = f"{settings.FRONTEND_BASE_URL.rstrip('/')}/reset-password?token={raw_token}"
+    send_password_reset_email(to=email_identity.provider_email or normalized, reset_url=reset_url)
+
+
+def confirm_password_reset(
+    session: Session,
+    token: str,
+    new_password: str,
+) -> None:
+    """
+    Verify the reset token, update the user's password, mark the token used,
+    and revoke all existing refresh tokens so every device is forced to
+    re-authenticate.
+    """
+    token_hash = hash_refresh_token(token.strip())
+    record = get_password_reset_token_by_hash(session, token_hash)
+
+    generic_error = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="This reset link is invalid or has expired. Please request a new one.",
+    )
+
+    if record is None or record.used_at is not None:
+        raise generic_error
+
+    if record.expires_at < datetime.now(timezone.utc):
+        raise generic_error
+
+    email_identity = get_email_identity_for_user(session, record.user_id)
+    if email_identity is None:
+        raise generic_error
+
+    email_identity.password_hash = hash_password(new_password)
+    session.add(email_identity)
+    session.commit()
+
+    mark_password_reset_token_used(session, record)
+    logout_all_devices(session, record.user_id)
+
+    print(
+        f"[auth] password_reset_confirmed user_id={record.user_id} "
+        f"token_id={record.id}"
+    )

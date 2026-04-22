@@ -37,6 +37,7 @@ from app.models.lead_followup import LeadFollowup, LeadFollowupCreate, LeadFollo
 from app.models.message import Message, MessageCreate, MessageRead
 from app.models.meeting import Meeting, MeetingCreate, MeetingRead, MeetingUpdate
 from app.models.notification import Notification, NotificationCreate, NotificationRead
+from app.models.password_reset_token import PasswordResetToken
 from app.models.payment import Payment, PaymentCreate, PaymentRead
 from app.models.pipeline import (
     Pipeline,
@@ -139,6 +140,7 @@ __all__ = [
     "Notification",
     "NotificationCreate",
     "NotificationRead",
+    "PasswordResetToken",
     "Payment",
     "PaymentCreate",
     "PaymentRead",
