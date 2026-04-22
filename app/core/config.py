@@ -19,12 +19,12 @@ class Settings(BaseSettings):
     PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = 30
     PASSWORD_RESET_REQUEST_COOLDOWN_SECONDS: int = 60
 
-    # ZeptoMail SMTP — leave ZEPTOMAIL_SMTP_PASSWORD empty to fall back to
-    # the stdout stub (useful in dev / CI / tests).
-    ZEPTOMAIL_SMTP_HOST: str = "smtp.zeptomail.in"
-    ZEPTOMAIL_SMTP_PORT: int = 587
-    ZEPTOMAIL_SMTP_USERNAME: str = "emailapikey"
-    ZEPTOMAIL_SMTP_PASSWORD: str = ""
+    # ZeptoMail REST API — SMTP is blocked outbound on most cloud hosts
+    # (Linode included), so we use HTTPS to api.zeptomail.in.
+    # Leave ZEPTOMAIL_TOKEN empty to fall back to the stdout stub
+    # (useful in dev / CI / tests).
+    ZEPTOMAIL_API_URL: str = "https://api.zeptomail.in/v1.1/email"
+    ZEPTOMAIL_TOKEN: str = ""
     EMAIL_FROM_ADDRESS: str = "noreply@sellnsettle.com"
     EMAIL_FROM_NAME: str = "SellNSettle"
 

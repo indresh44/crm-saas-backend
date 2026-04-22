@@ -2,20 +2,21 @@
 Transactional email service.
 
 Behavior:
-- If ZEPTOMAIL_SMTP_PASSWORD is set in the environment, we send a real email
-  via ZeptoMail's SMTP relay (smtp.zeptomail.in:587, STARTTLS).
+- If ZEPTOMAIL_TOKEN is set in the environment, we send a real email via
+  ZeptoMail's HTTPS REST API at ZEPTOMAIL_API_URL. (We use REST, not SMTP,
+  because most cloud hosts — Linode included — block outbound SMTP.)
 - If not, we fall back to printing the email contents to stdout so the
   password-reset flow stays dev-testable without external credentials.
 
 Keep this function's signature stable — callers shouldn't care whether it's
-hitting real SMTP or stdout.
+hitting the real API or stdout.
 """
 
 from __future__ import annotations
 
 import logging
-import smtplib
-from email.message import EmailMessage
+
+import httpx
 
 from app.core.config import settings
 
@@ -44,7 +45,7 @@ def _render_reset_html(reset_url: str) -> str:
 
 
 def _render_reset_text(reset_url: str) -> str:
-    """Plain-text alternative. Required for clients that don't render HTML."""
+    """Plain-text alternative. Included so clients that strip HTML still get a readable message."""
     return (
         "Hi,\n\n"
         "We got a request to reset your SellNSettle password. Use the link "
@@ -56,8 +57,20 @@ def _render_reset_text(reset_url: str) -> str:
     )
 
 
+def _build_authorization_header(token: str) -> str:
+    """
+    ZeptoMail requires 'Authorization: Zoho-enczapikey <token>'.
+    If the user pasted the header-formatted value (the UI shows it with the
+    prefix), use as-is; otherwise prepend the prefix. Tolerant either way.
+    """
+    token = token.strip()
+    if token.startswith("Zoho-enczapikey "):
+        return token
+    return f"Zoho-enczapikey {token}"
+
+
 def _send_via_stdout(to: str, reset_url: str) -> None:
-    """Dev fallback — prints the email instead of sending. Used when no SMTP password is configured."""
+    """Dev fallback — prints the email instead of sending. Used when no token is configured."""
     banner = "========== PASSWORD RESET EMAIL (STDOUT STUB) =========="
     print(banner, flush=True)
     print(f"To: {to}", flush=True)
@@ -67,38 +80,58 @@ def _send_via_stdout(to: str, reset_url: str) -> None:
     logger.info("Password reset email (stdout stub) for %s — link %s", to, reset_url)
 
 
-def _send_via_smtp(to: str, reset_url: str) -> None:
-    """Send the password-reset email via ZeptoMail SMTP relay."""
-    msg = EmailMessage()
-    msg["Subject"] = "Reset your SellNSettle password"
-    msg["From"] = f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM_ADDRESS}>"
-    msg["To"] = to
-    msg.set_content(_render_reset_text(reset_url))
-    msg.add_alternative(_render_reset_html(reset_url), subtype="html")
+def _send_via_rest(to: str, reset_url: str) -> None:
+    """Send the password-reset email via ZeptoMail's HTTPS REST API."""
+    payload = {
+        "from": {
+            "address": settings.EMAIL_FROM_ADDRESS,
+            "name": settings.EMAIL_FROM_NAME,
+        },
+        "to": [{"email_address": {"address": to}}],
+        "subject": "Reset your SellNSettle password",
+        "htmlbody": _render_reset_html(reset_url),
+        "textbody": _render_reset_text(reset_url),
+    }
+    headers = {
+        "Authorization": _build_authorization_header(settings.ZEPTOMAIL_TOKEN),
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
 
-    with smtplib.SMTP(settings.ZEPTOMAIL_SMTP_HOST, settings.ZEPTOMAIL_SMTP_PORT, timeout=15) as server:
-        server.starttls()
-        server.login(settings.ZEPTOMAIL_SMTP_USERNAME, settings.ZEPTOMAIL_SMTP_PASSWORD)
-        server.send_message(msg)
+    response = httpx.post(
+        settings.ZEPTOMAIL_API_URL,
+        headers=headers,
+        json=payload,
+        timeout=15.0,
+    )
+
+    if response.status_code >= 400:
+        # ZeptoMail returns JSON with `error.details` or `message` on failure —
+        # surface what we can so the server log is useful.
+        body_preview = response.text[:400]
+        logger.error(
+            "ZeptoMail REST send failed: status=%d body=%s",
+            response.status_code,
+            body_preview,
+        )
+        print(
+            f"[email] ERROR sending to {to}: HTTP {response.status_code} — {body_preview}",
+            flush=True,
+        )
+        response.raise_for_status()
+
     logger.info("Password reset email sent via ZeptoMail to %s", to)
     print(f"[email] password-reset email sent via ZeptoMail to {to}", flush=True)
 
 
 def send_password_reset_email(to: str, reset_url: str) -> None:
     """
-    Send a password-reset email. Falls back to stdout if ZeptoMail is not
-    configured. Raises on unexpected SMTP errors so misconfiguration is
-    visible during setup; the caller in auth_service intentionally lets that
-    propagate as a 500 in dev — wrap in try/except upstream once production
-    flow is stable if we want to swallow failures for enumeration safety.
+    Send a password-reset email. Falls back to stdout when ZEPTOMAIL_TOKEN
+    is not set. Raises on non-2xx responses so misconfiguration is visible
+    during setup.
     """
-    if not settings.ZEPTOMAIL_SMTP_PASSWORD:
+    if not settings.ZEPTOMAIL_TOKEN:
         _send_via_stdout(to, reset_url)
         return
 
-    try:
-        _send_via_smtp(to, reset_url)
-    except smtplib.SMTPException as exc:
-        logger.error("ZeptoMail SMTP send failed for %s: %s", to, exc)
-        print(f"[email] ERROR sending password-reset email to {to}: {exc}", flush=True)
-        raise
+    _send_via_rest(to, reset_url)
