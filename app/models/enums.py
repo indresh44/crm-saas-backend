@@ -59,6 +59,11 @@ class InvoiceStatus(str, Enum):
     PAID = "paid"
 
 
+class InvoiceAdjustmentType(str, Enum):
+    DISCOUNT = "discount"
+    WRITE_OFF = "write_off"
+
+
 class LeadSource(str, Enum):
     WALK_IN = "walk_in"
     WHATSAPP = "whatsapp"

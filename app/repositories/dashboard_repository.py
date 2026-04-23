@@ -12,6 +12,7 @@ from app.models.customer import Customer
 from app.models.enums import InvoiceStatus
 from app.models.invoice import Invoice
 from app.models.lead import Lead
+from app.models.invoice_adjustment import InvoiceAdjustment
 from app.models.payment import Payment
 
 
@@ -81,7 +82,20 @@ def fetch_outstanding_and_overdue(
         .subquery()
     )
 
-    balance_due_expr = Invoice.total_amount - func.coalesce(payment_totals_sq.c.amount_paid, 0)
+    adjustment_totals_sq = (
+        select(
+            InvoiceAdjustment.invoice_id.label("invoice_id"),
+            func.coalesce(func.sum(InvoiceAdjustment.amount), 0).label("adjustments_total"),
+        )
+        .group_by(InvoiceAdjustment.invoice_id)
+        .subquery()
+    )
+
+    balance_due_expr = (
+        Invoice.total_amount
+        - func.coalesce(payment_totals_sq.c.amount_paid, 0)
+        - func.coalesce(adjustment_totals_sq.c.adjustments_total, 0)
+    )
     outstanding_filter = and_(
         Invoice.business_id == business_id,
         Invoice.status.notin_([InvoiceStatus.PAID, InvoiceStatus.DRAFT]),
@@ -94,6 +108,7 @@ def fetch_outstanding_and_overdue(
         )
         .select_from(Invoice)
         .outerjoin(payment_totals_sq, Invoice.id == payment_totals_sq.c.invoice_id)
+        .outerjoin(adjustment_totals_sq, Invoice.id == adjustment_totals_sq.c.invoice_id)
         .where(outstanding_filter)
         .subquery()
     )
@@ -112,6 +127,7 @@ def fetch_outstanding_and_overdue(
         )
         .select_from(Invoice)
         .outerjoin(payment_totals_sq, Invoice.id == payment_totals_sq.c.invoice_id)
+        .outerjoin(adjustment_totals_sq, Invoice.id == adjustment_totals_sq.c.invoice_id)
         .outerjoin(Lead, Invoice.lead_id == Lead.id)
         .outerjoin(Customer, Lead.customer_id == Customer.id)
         .where(

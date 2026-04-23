@@ -402,6 +402,12 @@
         <span>{{ format_inr(tax_total) }}</span>
       </div>
     {% endif %}
+    {% for adj in adjustments %}
+      <div class="totals-row">
+        <span>{% if adj.adjustment_type == 'discount' %}Discount{% else %}Write-off{% endif %}{% if adj.reason %} ({{ adj.reason }}){% endif %}</span>
+        <span>- {{ format_inr(adj.amount) }}</span>
+      </div>
+    {% endfor %}
     {% if amount_paid > 0 %}
       <div class="totals-row">
         <span>Paid</span>
@@ -414,7 +420,7 @@
     {% else %}
       <div class="totals-row grand">
         <span>Grand Total</span>
-        <span>{{ format_inr(total_amount) }}</span>
+        <span>{{ format_inr(total_amount - adjustments_total) }}</span>
       </div>
     {% endif %}
   </div>

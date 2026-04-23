@@ -15,6 +15,7 @@ from app.models.lead import Lead
 from app.models.payment import Payment
 from app.models.user import User
 from app.repositories.business_repository import get_business_by_id
+from app.repositories.invoice_adjustment_repository import sum_adjustments_for_invoice
 from app.repositories.customer_repository import (
     create_customer as repo_create_customer,
     get_customer_by_phone as repo_get_customer_by_phone,
@@ -167,6 +168,7 @@ def get_customer_outstanding(
 
     total_invoiced = sum((invoice.total_amount for invoice in invoices.values()), Decimal("0"))
     total_paid = Decimal("0")
+    total_adjustments = Decimal("0")
     overdue_invoices = 0
 
     if invoice_ids:
@@ -178,19 +180,32 @@ def get_customer_outstanding(
         for payment in payments:
             payments_by_invoice_id[payment.invoice_id] = payments_by_invoice_id.get(payment.invoice_id, Decimal("0")) + payment.amount
 
+        adjustments_by_invoice_id: dict[UUID, Decimal] = {
+            invoice_id: sum_adjustments_for_invoice(session, invoice_id)
+            for invoice_id in invoice_ids
+        }
+        total_adjustments = sum(adjustments_by_invoice_id.values(), Decimal("0"))
+
         business = get_business_by_id(session, business_id)
         tz = (business.timezone if business else None) or "Asia/Kolkata"
         today = today_in(tz)
         overdue_invoices = sum(
             1
             for invoice in invoices.values()
-            if invoice.due_date < today and payments_by_invoice_id.get(invoice.id, Decimal("0")) < invoice.total_amount
+            if (
+                invoice.due_date < today
+                and (
+                    payments_by_invoice_id.get(invoice.id, Decimal("0"))
+                    + adjustments_by_invoice_id.get(invoice.id, Decimal("0"))
+                )
+                < invoice.total_amount
+            )
         )
 
     return {
         "total_invoiced": total_invoiced,
         "total_paid": total_paid,
-        "outstanding": total_invoiced - total_paid,
+        "outstanding": total_invoiced - total_paid - total_adjustments,
         "overdue_invoices": overdue_invoices,
     }
 

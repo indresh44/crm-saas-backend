@@ -5,8 +5,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
-from app.models.enums import InvoiceStatus, LeadActivityType
-from app.models.invoice import Invoice
+from app.models.enums import LeadActivityType
 from app.models.payment import Payment, PaymentCreate
 from app.models.user import User
 from app.models.lead import LeadActivity
@@ -14,6 +13,7 @@ from app.repositories.invoice_repository import get_invoice_by_id
 from app.repositories.lead_repository import create_lead_activity
 from app.services.invoice_service import clear_invoice_pdf
 from app.services.invoice_service import list_customer_invoices as service_list_customer_invoices
+from app.services.invoice_status_service import recompute_invoice_status
 
 
 def create_payment(
@@ -39,10 +39,13 @@ def create_payment(
     session.add(payment)
     session.flush()
 
-    _recalculate_invoice_status(session, invoice)
     clear_invoice_pdf(session, invoice)
     session.commit()
     session.refresh(payment)
+
+    # Recompute status — `paid` fires when effective balance reaches 0,
+    # factoring in adjustments (discount / write-off) as well as payments.
+    recompute_invoice_status(session, invoice)
 
     if invoice.lead_id is not None:
         create_lead_activity(session, LeadActivity(
@@ -106,15 +109,3 @@ def list_customer_payments(
     return list(session.exec(statement).all())
 
 
-def _recalculate_invoice_status(session: Session, invoice: Invoice) -> None:
-    statement = select(Payment).where(Payment.invoice_id == invoice.id)
-    payments = list(session.exec(statement).all())
-    total_paid: Decimal = sum((p.amount for p in payments), Decimal("0"))
-
-    if total_paid >= invoice.total_amount:
-        invoice.status = InvoiceStatus.PAID
-    elif total_paid > 0:
-        invoice.status = InvoiceStatus.PARTIAL
-    # else: leave status unchanged (draft/sent/approved — payment doesn't reset it)
-
-    session.add(invoice)

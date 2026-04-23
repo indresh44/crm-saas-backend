@@ -484,10 +484,13 @@ def update_invoice_item(
             detail="Invoice not found",
         )
 
-    if invoice.status != InvoiceStatus.DRAFT:
+    # `InvoiceItemUpdate` only exposes name / description / deliverables —
+    # descriptive fields that don't affect money totals. They stay editable
+    # post-approval; only paid invoices are fully locked.
+    if invoice.status == InvoiceStatus.PAID:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Can only edit items on draft invoices",
+            detail="Paid invoices can't be edited",
         )
 
     item = session.exec(

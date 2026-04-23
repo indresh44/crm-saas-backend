@@ -12,6 +12,7 @@ from app.models.customer import Customer
 from app.models.enums import InvoiceStatus
 from app.models.invoice import Invoice
 from app.models.invoice import InvoiceListItem
+from app.models.invoice_adjustment import InvoiceAdjustment
 from app.models.invoice_item import InvoiceItem
 from app.models.lead import Lead
 from app.models.payment import Payment
@@ -155,15 +156,26 @@ def list_invoices_enriched(
         .subquery()
     )
 
+    adjustment_totals_sq = (
+        select(
+            InvoiceAdjustment.invoice_id.label("invoice_id"),
+            func.coalesce(func.sum(InvoiceAdjustment.amount), 0).label("adjustments_total"),
+        )
+        .group_by(InvoiceAdjustment.invoice_id)
+        .subquery()
+    )
+
     statement = (
         select(
             Invoice,
             func.coalesce(payment_totals_sq.c.amount_paid, 0).label("amount_paid"),
+            func.coalesce(adjustment_totals_sq.c.adjustments_total, 0).label("adjustments_total"),
             Customer.name.label("customer_name"),
             Customer.phone.label("customer_phone"),
             Lead.title.label("lead_title"),
         )
         .outerjoin(payment_totals_sq, Invoice.id == payment_totals_sq.c.invoice_id)
+        .outerjoin(adjustment_totals_sq, Invoice.id == adjustment_totals_sq.c.invoice_id)
         .outerjoin(Lead, Invoice.lead_id == Lead.id)
         .outerjoin(Customer, Lead.customer_id == Customer.id)
         .where(Invoice.business_id == business_id)
@@ -189,7 +201,11 @@ def list_invoices_enriched(
     filtered_sq = statement.order_by(None).subquery()
     total = session.exec(select(func.count()).select_from(filtered_sq)).one()
 
-    balance_due_expr = filtered_sq.c.total_amount - filtered_sq.c.amount_paid
+    balance_due_expr = (
+        filtered_sq.c.total_amount
+        - filtered_sq.c.amount_paid
+        - filtered_sq.c.adjustments_total
+    )
     summary_row = session.exec(
         select(
             func.coalesce(
@@ -234,7 +250,8 @@ def list_invoices_enriched(
     ).all()
 
     invoices: list[InvoiceListItem] = []
-    for invoice, amount_paid, customer_name, customer_phone, lead_title in rows:
+    for row in rows:
+        invoice, amount_paid, _adjustments_total, customer_name, customer_phone, lead_title = row
         invoice_read = InvoiceListItem.model_validate(invoice, from_attributes=True)
         invoice_read.amount_paid = amount_paid
         invoice_read.customer_name = customer_name

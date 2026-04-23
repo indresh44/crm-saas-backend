@@ -16,6 +16,11 @@ from app.models.customer import (
     CustomerUpdate,
 )
 from app.models.invoice import Invoice, InvoiceCreate, InvoiceRead, InvoiceReadWithItems
+from app.models.invoice_adjustment import (
+    InvoiceAdjustment,
+    InvoiceAdjustmentCreate,
+    InvoiceAdjustmentRead,
+)
 from app.models.invoice_item import InvoiceItem, InvoiceItemCreate, InvoiceItemRead, InvoiceItemUpdate
 from app.models.invoice_template import (
     InvoiceTemplate,
@@ -100,6 +105,9 @@ __all__ = [
     "CustomerSearchResponse",
     "CustomerUpdate",
     "Invoice",
+    "InvoiceAdjustment",
+    "InvoiceAdjustmentCreate",
+    "InvoiceAdjustmentRead",
     "InvoiceCreate",
     "InvoiceItem",
     "InvoiceItemCreate",

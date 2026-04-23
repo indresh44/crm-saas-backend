@@ -143,9 +143,20 @@ def generate_invoice_pdf(
 
     issued_date = invoice.issued_date.strftime("%d %b %Y")
     due_date = invoice.due_date.strftime("%d %b %Y")
+
+    # Adjustments (discount / write-off) reduce the effective amount owed.
+    from app.repositories.invoice_adjustment_repository import list_adjustments_for_invoice
+    adjustments = list_adjustments_for_invoice(session, invoice.id)
+    adjustments_total = sum(
+        (Decimal(str(a.amount)) for a in adjustments),
+        Decimal("0"),
+    )
+
     amount_paid = payments_total
-    balance_due = total_amount - amount_paid
-    amount_in_words = amount_to_words_inr(float(balance_due if amount_paid > 0 else total_amount))
+    balance_due = total_amount - adjustments_total - amount_paid
+    amount_in_words = amount_to_words_inr(
+        float(balance_due if (amount_paid > 0 or adjustments_total > 0) else total_amount)
+    )
 
     # PDF heading: ESTIMATE for draft/sent; TAX INVOICE for approved/partial/paid
     from app.models.enums import InvoiceStatus
@@ -174,6 +185,15 @@ def generate_invoice_pdf(
         is_same_state=is_same_state,
         half_gst_label=half_gst_label,
         total_amount=total_amount,
+        adjustments=[
+            {
+                "adjustment_type": a.adjustment_type,
+                "amount": a.amount,
+                "reason": a.reason,
+            }
+            for a in adjustments
+        ],
+        adjustments_total=adjustments_total,
         amount_paid=amount_paid,
         balance_due=balance_due,
         amount_in_words=amount_in_words,

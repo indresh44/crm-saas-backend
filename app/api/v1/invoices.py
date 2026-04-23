@@ -14,6 +14,7 @@ from app.core.dependencies import get_current_user
 from app.models.enums import InvoiceStatus
 from app.models.invoice import InvoiceListResponse, InvoiceListSummary, InvoiceRead
 from app.models.attachment import AttachmentRead
+from app.models.invoice_adjustment import InvoiceAdjustmentCreate, InvoiceAdjustmentRead
 from app.models.invoice_item import InvoiceItemRead, InvoiceItemUpdate
 from app.models.user import User
 from app.repositories.business_repository import get_business_by_id
@@ -21,6 +22,11 @@ from app.repositories.customer_repository import get_customer_by_id
 from app.repositories.invoice_repository import get_invoice_with_items
 from app.repositories.lead_repository import get_lead_by_id
 from app.repositories.payment_repository import list_payments_for_invoice
+from app.services.invoice_adjustment_service import (
+    add_adjustment as service_add_adjustment,
+    delete_adjustment as service_delete_adjustment,
+    list_adjustments as service_list_adjustments,
+)
 from app.services.invoice_service import (
     InvoiceCreateWithItems,
     InvoiceUpdateWithItems,
@@ -144,6 +150,59 @@ def update_invoice_item(
         invoice_id=invoice_id,
         item_id=item_id,
         payload=payload,
+    )
+
+
+@router.post(
+    "/invoices/{invoice_id}/adjustments",
+    response_model=InvoiceAdjustmentRead,
+    status_code=201,
+)
+def add_invoice_adjustment(
+    invoice_id: UUID,
+    payload: InvoiceAdjustmentCreate,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> InvoiceAdjustmentRead:
+    return service_add_adjustment(
+        session=session,
+        current_user=current_user,
+        invoice_id=invoice_id,
+        data=payload,
+    )
+
+
+@router.get(
+    "/invoices/{invoice_id}/adjustments",
+    response_model=List[InvoiceAdjustmentRead],
+)
+def list_invoice_adjustments(
+    invoice_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> List[InvoiceAdjustmentRead]:
+    return service_list_adjustments(
+        session=session,
+        current_user=current_user,
+        invoice_id=invoice_id,
+    )
+
+
+@router.delete(
+    "/invoices/{invoice_id}/adjustments/{adjustment_id}",
+    status_code=204,
+)
+def delete_invoice_adjustment(
+    invoice_id: UUID,
+    adjustment_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> None:
+    service_delete_adjustment(
+        session=session,
+        current_user=current_user,
+        invoice_id=invoice_id,
+        adjustment_id=adjustment_id,
     )
 
 
