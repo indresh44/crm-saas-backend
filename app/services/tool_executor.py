@@ -612,6 +612,8 @@ class ToolExecutor:
 
         if invoice.status == InvoiceStatus.PAID:
             raise ValueError("Paid invoices cannot be updated")
+        if invoice.status == InvoiceStatus.CANCELLED:
+            raise ValueError("Cancelled invoices cannot be updated")
 
         items = invoice_service.list_invoice_items(
             session=self.session,
@@ -1500,7 +1502,7 @@ class ToolExecutor:
         for invoice in invoices:
             amount_paid = float(invoice.amount_paid or 0)
             balance = float(invoice.total_amount or 0) - amount_paid
-            if balance <= 0 or invoice.status in {InvoiceStatus.PAID, InvoiceStatus.DRAFT} or invoice.due_date >= today:
+            if balance <= 0 or invoice.status in {InvoiceStatus.PAID, InvoiceStatus.DRAFT, InvoiceStatus.CANCELLED} or invoice.due_date >= today:
                 continue
             days_overdue = (today - invoice.due_date).days
             total_overdue += balance
@@ -1533,7 +1535,7 @@ class ToolExecutor:
         overdue_count = 0
         unpaid_count = 0
         for invoice in invoices:
-            if invoice.status == InvoiceStatus.DRAFT:
+            if invoice.status in {InvoiceStatus.DRAFT, InvoiceStatus.CANCELLED}:
                 continue
             amount = float(invoice.total_amount or 0)
             paid = float(invoice.amount_paid or 0)

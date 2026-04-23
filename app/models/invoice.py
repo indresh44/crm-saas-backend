@@ -34,6 +34,8 @@ class InvoiceBase(InvoiceCreateFields):
     invoice_number: str
     pdf_url: Optional[str] = Field(default=None, max_length=500)
     pdf_generated_at: Optional[datetime] = None
+    cancelled_at: Optional[datetime] = None
+    cancelled_reason: Optional[str] = None
 
 
 class InvoiceCreate(InvoiceCreateFields):
@@ -99,4 +101,6 @@ class Invoice(InvoiceBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
             values_callable=_invoice_status_values,
         ),
     )
+    cancelled_at: Optional[datetime] = Field(default=None, nullable=True)
+    cancelled_reason: Optional[str] = Field(default=None, nullable=True)
     items: List[InvoiceItem] = Relationship(back_populates="invoice")

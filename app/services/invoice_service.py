@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
 from uuid import UUID
@@ -235,6 +235,12 @@ def update_invoice(
             detail="Paid invoices cannot be edited",
         )
 
+    if invoice.status == InvoiceStatus.CANCELLED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cancelled invoices cannot be edited",
+        )
+
     update_data = data.invoice.model_dump(exclude_unset=True)
     requested_status = update_data.get("status")
 
@@ -301,6 +307,7 @@ def list_invoices(
     limit: int = 20,
     offset: int = 0,
     exclude_draft: bool = False,
+    include_cancelled: bool = False,
 ) -> tuple[list[InvoiceListItem], int, dict[str, Decimal | int]]:
     if lead_id is not None:
         lead = get_lead_by_id(
@@ -323,6 +330,7 @@ def list_invoices(
         to_date=to_date,
         lead_id=lead_id,
         exclude_draft=exclude_draft,
+        include_cancelled=include_cancelled,
         limit=limit,
         offset=offset,
     )
@@ -355,6 +363,7 @@ def list_customer_invoices(
     limit: int = 20,
     offset: int = 0,
     exclude_draft: bool = False,
+    include_cancelled: bool = False,
 ) -> tuple[list[InvoiceListItem], int, dict[str, Decimal | int]]:
     return list_invoices(
         session=session,
@@ -364,6 +373,7 @@ def list_customer_invoices(
         limit=limit,
         offset=offset,
         exclude_draft=exclude_draft,
+        include_cancelled=include_cancelled,
     )
 
 
@@ -486,11 +496,16 @@ def update_invoice_item(
 
     # `InvoiceItemUpdate` only exposes name / description / deliverables —
     # descriptive fields that don't affect money totals. They stay editable
-    # post-approval; only paid invoices are fully locked.
+    # post-approval; only paid and cancelled invoices are fully locked.
     if invoice.status == InvoiceStatus.PAID:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Paid invoices can't be edited",
+        )
+    if invoice.status == InvoiceStatus.CANCELLED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cancelled invoices can't be edited",
         )
 
     item = session.exec(
@@ -513,6 +528,64 @@ def update_invoice_item(
     session.commit()
     session.refresh(item)
     return item
+
+
+def cancel_invoice(
+    session: Session,
+    current_user: User,
+    invoice_id: UUID,
+    reason: str | None = None,
+) -> Invoice:
+    """
+    Cancel an invoice. Allowed on draft/sent/approved with no payments.
+    Blocked on partial, paid, and already-cancelled.
+    """
+    invoice = get_invoice_by_id(
+        session=session,
+        business_id=current_user.business_id,
+        invoice_id=invoice_id,
+    )
+    if invoice is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice not found",
+        )
+
+    if invoice.status == InvoiceStatus.CANCELLED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invoice is already cancelled",
+        )
+    if invoice.status == InvoiceStatus.PAID:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Paid invoices can't be cancelled. Use an adjustment or refund flow.",
+        )
+    if invoice.status == InvoiceStatus.PARTIAL:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Partially paid invoices can't be cancelled. Use a write-off "
+                "adjustment to close the balance."
+            ),
+        )
+
+    # Defence in depth — if payments exist despite status, refuse.
+    payments = list_payments_for_invoice(session, current_user.business_id, invoice_id)
+    if payments:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot cancel: payments have been recorded on this invoice.",
+        )
+
+    invoice.status = InvoiceStatus.CANCELLED
+    invoice.cancelled_at = datetime.now(timezone.utc)
+    cleaned_reason = (reason or "").strip() or None
+    invoice.cancelled_reason = cleaned_reason
+    invoice = repo_update_invoice(session, invoice)
+
+    clear_invoice_pdf(session, invoice)
+    return invoice
 
 
 class InvoiceData(SQLModel):

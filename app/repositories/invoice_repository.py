@@ -145,6 +145,7 @@ def list_invoices_enriched(
     limit: int = 20,
     offset: int = 0,
     exclude_draft: bool = False,
+    include_cancelled: bool = False,
 ) -> tuple[list[InvoiceListItem], int, dict[str, Decimal | int]]:
     payment_totals_sq = (
         select(
@@ -186,8 +187,11 @@ def list_invoices_enriched(
 
     if status is not None:
         statement = statement.where(Invoice.status == status)
-    elif exclude_draft:
-        statement = statement.where(Invoice.status != InvoiceStatus.DRAFT)
+    else:
+        if exclude_draft:
+            statement = statement.where(Invoice.status != InvoiceStatus.DRAFT)
+        if not include_cancelled:
+            statement = statement.where(Invoice.status != InvoiceStatus.CANCELLED)
 
     if from_date is not None:
         statement = statement.where(Invoice.issued_date >= from_date)
@@ -214,7 +218,11 @@ def list_invoices_enriched(
                         (
                             and_(
                                 filtered_sq.c.status.notin_(
-                                    [InvoiceStatus.PAID.value, InvoiceStatus.DRAFT.value]
+                                    [
+                                        InvoiceStatus.PAID.value,
+                                        InvoiceStatus.DRAFT.value,
+                                        InvoiceStatus.CANCELLED.value,
+                                    ]
                                 ),
                                 balance_due_expr > 0,
                             ),
@@ -231,7 +239,11 @@ def list_invoices_enriched(
                         (
                             and_(
                                 filtered_sq.c.status.notin_(
-                                    [InvoiceStatus.PAID.value, InvoiceStatus.DRAFT.value]
+                                    [
+                                        InvoiceStatus.PAID.value,
+                                        InvoiceStatus.DRAFT.value,
+                                        InvoiceStatus.CANCELLED.value,
+                                    ]
                                 ),
                                 balance_due_expr > 0,
                             ),

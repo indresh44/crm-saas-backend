@@ -98,7 +98,9 @@ def fetch_outstanding_and_overdue(
     )
     outstanding_filter = and_(
         Invoice.business_id == business_id,
-        Invoice.status.notin_([InvoiceStatus.PAID, InvoiceStatus.DRAFT]),
+        Invoice.status.notin_(
+            [InvoiceStatus.PAID, InvoiceStatus.DRAFT, InvoiceStatus.CANCELLED]
+        ),
     )
 
     summary_sq = (

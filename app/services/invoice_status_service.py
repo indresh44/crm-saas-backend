@@ -40,6 +40,11 @@ def recompute_invoice_status(
     if invoice.status == InvoiceStatus.DRAFT:
         return invoice
 
+    # Cancelled is terminal — no amount of payment or adjustment math should
+    # resurrect it.
+    if invoice.status == InvoiceStatus.CANCELLED:
+        return invoice
+
     total = Decimal(str(invoice.total_amount or 0))
     adjustments_total = sum_adjustments_for_invoice(session, invoice.id)
     payments_total = _sum_payments(session, invoice.business_id, invoice.id)

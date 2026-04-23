@@ -53,6 +53,11 @@ def add_adjustment(
             detail="Invoice not found",
         )
 
+    if invoice.status == InvoiceStatus.CANCELLED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot add adjustments to a cancelled invoice.",
+        )
     if invoice.status == InvoiceStatus.DRAFT:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

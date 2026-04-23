@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
-from app.models.enums import LeadActivityType
+from app.models.enums import InvoiceStatus, LeadActivityType
 from app.models.payment import Payment, PaymentCreate
 from app.models.user import User
 from app.models.lead import LeadActivity
@@ -30,6 +30,12 @@ def create_payment(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invoice not found for current business",
+        )
+
+    if invoice.status == InvoiceStatus.CANCELLED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot record payment on a cancelled invoice.",
         )
 
     payment_data = data.model_dump()

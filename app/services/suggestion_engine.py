@@ -119,7 +119,7 @@ class SuggestionEngine:
             offset=0,
         )
         unpaid_count = len(
-            [invoice for invoice in invoices if invoice.status not in {InvoiceStatus.PAID, InvoiceStatus.DRAFT}]
+            [invoice for invoice in invoices if invoice.status not in {InvoiceStatus.PAID, InvoiceStatus.DRAFT, InvoiceStatus.CANCELLED}]
         )
         leads = lead_service.list_leads(
             session=self.session,

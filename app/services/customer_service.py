@@ -10,6 +10,7 @@ from app.core.phone import normalize_phone_value
 from app.core.time_utils import today_in
 from app.models.booking import Booking
 from app.models.customer import Customer, CustomerCreateRequest, CustomerUpdate
+from app.models.enums import InvoiceStatus
 from app.models.invoice import Invoice
 from app.models.lead import Lead
 from app.models.payment import Payment
@@ -145,6 +146,7 @@ def get_customer_outstanding(
         .where(
             Invoice.business_id == business_id,
             Lead.customer_id == customer_id,
+            Invoice.status != InvoiceStatus.CANCELLED,
         )
     )
     booking_invoice_statement = (
@@ -154,6 +156,7 @@ def get_customer_outstanding(
         .where(
             Invoice.business_id == business_id,
             Lead.customer_id == customer_id,
+            Invoice.status != InvoiceStatus.CANCELLED,
         )
     )
 

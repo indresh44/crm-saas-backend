@@ -287,9 +287,50 @@
     background: #f0fdfa;
     color: #0f766e;
   }
+
+  .status-cancelled {
+    background: #fef2f2;
+    color: #b91c1c;
+  }
+
+  .cancelled-watermark {
+    position: fixed;
+    top: 40%;
+    left: 10%;
+    right: 10%;
+    text-align: center;
+    font-size: 120px;
+    font-weight: 900;
+    letter-spacing: 12px;
+    color: rgba(220, 38, 38, 0.18);
+    transform: rotate(-24deg);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  .cancelled-banner {
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    color: #b91c1c;
+    padding: 10px 14px;
+    margin: 0 0 16px 0;
+    font-size: 12px;
+    border-radius: 4px;
+  }
+
+  .cancelled-banner strong {
+    font-weight: 700;
+  }
 </style>
 </head>
 <body>
+  {% if is_cancelled %}
+    <div class="cancelled-watermark">CANCELLED</div>
+    <div class="cancelled-banner">
+      <strong>This invoice has been cancelled</strong> and is no longer valid.
+      {% if cancelled_reason %} Reason: {{ cancelled_reason }}{% endif %}
+    </div>
+  {% endif %}
   <div class="header">
     <div class="header-left">
       {% if business.logo_url %}

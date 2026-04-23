@@ -30,6 +30,7 @@ from app.services.invoice_adjustment_service import (
 from app.services.invoice_service import (
     InvoiceCreateWithItems,
     InvoiceUpdateWithItems,
+    cancel_invoice as service_cancel_invoice,
     create_invoice as service_create_invoice,
     get_invoice as service_get_invoice,
     list_invoice_items as service_list_invoice_items,
@@ -37,11 +38,16 @@ from app.services.invoice_service import (
     update_invoice as service_update_invoice,
     update_invoice_item as service_update_invoice_item,
 )
+from pydantic import BaseModel
 from app.services.attachment_service import list_attachments as service_list_attachments
 from app.models.enums import AttachmentEntityType
 from app.services.invoice_pdf_service import generate_invoice_pdf
 
 router = APIRouter()
+
+
+class CancelInvoicePayload(BaseModel):
+    reason: str | None = None
 
 
 @router.post("/invoices", response_model=InvoiceRead)
@@ -65,6 +71,7 @@ def list_invoices(
     from_date: date | None = None,
     to_date: date | None = None,
     lead_id: UUID | None = None,
+    include_cancelled: bool = Query(default=False),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     session: Session = Depends(get_session),
@@ -78,6 +85,7 @@ def list_invoices(
         from_date=from_date,
         to_date=to_date,
         lead_id=lead_id,
+        include_cancelled=include_cancelled,
         limit=limit,
         offset=offset,
     )
@@ -133,6 +141,22 @@ def update_invoice(
         data=payload,
     )
     return invoice
+
+
+@router.post("/invoices/{invoice_id}/cancel", response_model=InvoiceRead)
+def cancel_invoice(
+    invoice_id: UUID,
+    payload: CancelInvoicePayload | None = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> InvoiceRead:
+    reason = payload.reason if payload is not None else None
+    return service_cancel_invoice(
+        session=session,
+        current_user=current_user,
+        invoice_id=invoice_id,
+        reason=reason,
+    )
 
 
 @router.patch("/invoices/{invoice_id}/items/{item_id}", response_model=InvoiceItemRead)

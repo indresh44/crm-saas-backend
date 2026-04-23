@@ -158,10 +158,18 @@ def generate_invoice_pdf(
         float(balance_due if (amount_paid > 0 or adjustments_total > 0) else total_amount)
     )
 
-    # PDF heading: ESTIMATE for draft/sent; TAX INVOICE for approved/partial/paid
+    # PDF heading: ESTIMATE for draft/sent; TAX INVOICE for approved/partial/paid.
+    # Cancelled invoices keep whatever heading they had before cancellation
+    # (TAX INVOICE / ESTIMATE) but are stamped with a CANCELLED watermark.
     from app.models.enums import InvoiceStatus
-    is_tax_invoice = invoice.status in {InvoiceStatus.APPROVED, InvoiceStatus.PARTIAL, InvoiceStatus.PAID}
+    is_tax_invoice = invoice.status in {
+        InvoiceStatus.APPROVED,
+        InvoiceStatus.PARTIAL,
+        InvoiceStatus.PAID,
+        InvoiceStatus.CANCELLED,
+    }
     pdf_heading = "TAX INVOICE" if is_tax_invoice else "ESTIMATE"
+    is_cancelled = invoice.status == InvoiceStatus.CANCELLED
 
     place_of_supply = getattr(customer, "state", None) or ""
 
@@ -199,6 +207,8 @@ def generate_invoice_pdf(
         amount_in_words=amount_in_words,
         has_payment_details=has_payment_details,
         pdf_heading=pdf_heading,
+        is_cancelled=is_cancelled,
+        cancelled_reason=invoice.cancelled_reason,
         place_of_supply=place_of_supply,
         format_inr=format_inr,
     )

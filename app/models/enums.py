@@ -57,6 +57,7 @@ class InvoiceStatus(str, Enum):
     APPROVED = "approved"
     PARTIAL = "partial"
     PAID = "paid"
+    CANCELLED = "cancelled"
 
 
 class InvoiceAdjustmentType(str, Enum):

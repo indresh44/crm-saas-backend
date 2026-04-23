@@ -132,6 +132,7 @@ def get_customer_summary(
         .where(
             Invoice.business_id == business_id,
             Lead.customer_id == customer_id,
+            Invoice.status != InvoiceStatus.CANCELLED,
         )
         .subquery()
     )
@@ -156,7 +157,11 @@ def get_customer_summary(
                         (
                             and_(
                                 customer_invoices_sq.c.status.notin_(
-                                    [InvoiceStatus.PAID.value, InvoiceStatus.DRAFT.value]
+                                    [
+                                        InvoiceStatus.PAID.value,
+                                        InvoiceStatus.DRAFT.value,
+                                        InvoiceStatus.CANCELLED.value,
+                                    ]
                                 ),
                                 balance_due_expr > 0,
                             ),
