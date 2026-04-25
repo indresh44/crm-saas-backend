@@ -98,6 +98,7 @@ def _build_auth_response(
             "id": str(business.id),
             "name": business.name,
             "onboarding_status": business.onboarding_status,
+            "business_type": business.business_type,
         },
     )
 
