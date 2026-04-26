@@ -175,7 +175,10 @@ def get_customer_outstanding(
     overdue_invoices = 0
 
     if invoice_ids:
-        payment_statement = select(Payment).where(Payment.invoice_id.in_(invoice_ids))
+        payment_statement = select(Payment).where(
+            Payment.invoice_id.in_(invoice_ids),
+            Payment.voided_at.is_(None),
+        )
         payments = list(session.exec(payment_statement).all())
         total_paid = sum((payment.amount for payment in payments), Decimal("0"))
 

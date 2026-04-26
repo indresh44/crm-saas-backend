@@ -10,8 +10,10 @@ from app.models.enums import LeadActivityType
 from app.models.lead import Lead, LeadActivity
 from app.models.lead_followup import (
     LeadFollowup,
+    LeadFollowupCancel,
     LeadFollowupCreate,
     LeadFollowupDone,
+    LeadFollowupReschedule,
     LeadFollowupTodayRead,
     LeadFollowupUpdate,
 )
@@ -276,3 +278,49 @@ def update_followup(
         ))
 
     return result
+
+
+def reschedule_followup(
+    session: Session,
+    current_user: User,
+    followup_id: UUID,
+    data: LeadFollowupReschedule,
+) -> LeadFollowup:
+    followup = get_followup(session, current_user, followup_id)
+    if followup.status in {"done", "cancelled"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot reschedule a {followup.status} follow-up.",
+        )
+    return update_followup(
+        session=session,
+        current_user=current_user,
+        followup_id=followup_id,
+        data=LeadFollowupUpdate(
+            scheduled_at=data.scheduled_at,
+            note=data.note,
+        ),
+    )
+
+
+def cancel_followup(
+    session: Session,
+    current_user: User,
+    followup_id: UUID,
+    data: LeadFollowupCancel,
+) -> LeadFollowup:
+    followup = get_followup(session, current_user, followup_id)
+    if followup.status in {"done", "cancelled"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Follow-up is already {followup.status}.",
+        )
+    return update_followup(
+        session=session,
+        current_user=current_user,
+        followup_id=followup_id,
+        data=LeadFollowupUpdate(
+            status="cancelled",
+            note=data.note,
+        ),
+    )

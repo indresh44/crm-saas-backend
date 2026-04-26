@@ -6,13 +6,22 @@ from sqlmodel import Session
 
 from app.core.database import get_session
 from app.core.dependencies import get_current_user
-from app.models.lead_followup import LeadFollowupCreate, LeadFollowupDone, LeadFollowupRead, LeadFollowupTodayRead
+from app.models.lead_followup import (
+    LeadFollowupCancel,
+    LeadFollowupCreate,
+    LeadFollowupDone,
+    LeadFollowupRead,
+    LeadFollowupReschedule,
+    LeadFollowupTodayRead,
+)
 from app.models.user import User
 from app.services.lead_followup_service import (
+    cancel_followup as service_cancel_followup,
     create_followup as service_create_followup,
     list_followups as service_list_followups,
     list_todays_followups as service_list_todays_followups,
     mark_followup_done as service_mark_followup_done,
+    reschedule_followup as service_reschedule_followup,
 )
 
 router = APIRouter()
@@ -70,5 +79,43 @@ def mark_lead_followup_done(
         current_user=current_user,
         followup_id=followup_id,
         data=payload or LeadFollowupDone(),
+    )
+    return followup
+
+
+@router.patch(
+    "/lead_followups/{followup_id}/reschedule",
+    response_model=LeadFollowupRead,
+)
+def reschedule_lead_followup(
+    followup_id: UUID,
+    payload: LeadFollowupReschedule,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> LeadFollowupRead:
+    followup = service_reschedule_followup(
+        session=session,
+        current_user=current_user,
+        followup_id=followup_id,
+        data=payload,
+    )
+    return followup
+
+
+@router.patch(
+    "/lead_followups/{followup_id}/cancel",
+    response_model=LeadFollowupRead,
+)
+def cancel_lead_followup(
+    followup_id: UUID,
+    payload: Optional[LeadFollowupCancel] = None,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> LeadFollowupRead:
+    followup = service_cancel_followup(
+        session=session,
+        current_user=current_user,
+        followup_id=followup_id,
+        data=payload or LeadFollowupCancel(),
     )
     return followup

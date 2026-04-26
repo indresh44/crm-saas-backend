@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 import uuid
@@ -34,7 +34,38 @@ class PaymentCreate(PaymentFields):
 
 class PaymentRead(PaymentBase):
     id: uuid.UUID
-    created_at: CreatedAtMixin.__annotations__["created_at"]
+    created_at: datetime
+    voided_at: Optional[datetime] = None
+    voided_reason: Optional[str] = None
+    voided_by: Optional[uuid.UUID] = None
+    replaces_payment_id: Optional[uuid.UUID] = None
+    edited_at: Optional[datetime] = None
+
+
+class PaymentMetadataUpdate(SQLModel):
+    """In-place edit of descriptive fields. None = leave unchanged."""
+
+    payment_date: Optional[date] = None
+    payment_method: Optional[PaymentMethod] = None
+    reference: Optional[str] = None
+
+
+class PaymentAmountUpdate(SQLModel):
+    """Amount-edit triggers void+replace under the hood."""
+
+    amount: Decimal = Field(decimal_places=2, max_digits=12)
+    reason: Optional[str] = None
+
+
+class PaymentMoveRequest(SQLModel):
+    """Move payment from one invoice to another (same customer scope)."""
+
+    invoice_id: uuid.UUID
+    reason: Optional[str] = None
+
+
+class PaymentVoidRequest(SQLModel):
+    reason: Optional[str] = None
 
 
 class Payment(PaymentBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
@@ -50,3 +81,18 @@ class Payment(PaymentBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
             values_callable=_payment_method_values,
         ),
     )
+
+    # Soft-void state. voided_at IS NULL means the payment is active and
+    # counts toward invoice balance / customer outstanding / revenue.
+    voided_at: Optional[datetime] = Field(default=None, nullable=True, index=True)
+    voided_reason: Optional[str] = Field(default=None, nullable=True)
+    voided_by: Optional[uuid.UUID] = Field(default=None, foreign_key="users.id", nullable=True)
+
+    # Lineage. When an amount-edit voids the original and creates a new
+    # payment, the new row's replaces_payment_id points back to the voided one.
+    replaces_payment_id: Optional[uuid.UUID] = Field(
+        default=None, foreign_key="payments.id", nullable=True, index=True
+    )
+
+    # Last in-place metadata change (date/method/reference). Null until edited.
+    edited_at: Optional[datetime] = Field(default=None, nullable=True)

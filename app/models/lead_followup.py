@@ -24,6 +24,15 @@ class LeadFollowupDone(SQLModel):
     note: Optional[str] = None
 
 
+class LeadFollowupReschedule(SQLModel):
+    scheduled_at: datetime
+    note: Optional[str] = None
+
+
+class LeadFollowupCancel(SQLModel):
+    note: Optional[str] = None
+
+
 class LeadFollowupUpdate(SQLModel):
     scheduled_at: Optional[datetime] = None
     note: Optional[str] = None

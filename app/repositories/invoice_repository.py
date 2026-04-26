@@ -152,7 +152,10 @@ def list_invoices_enriched(
             Payment.invoice_id.label("invoice_id"),
             func.coalesce(func.sum(Payment.amount), 0).label("amount_paid"),
         )
-        .where(Payment.business_id == business_id)
+        .where(
+            Payment.business_id == business_id,
+            Payment.voided_at.is_(None),
+        )
         .group_by(Payment.invoice_id)
         .subquery()
     )

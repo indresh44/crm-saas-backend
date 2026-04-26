@@ -115,7 +115,10 @@ def get_customer_summary(
             Payment.invoice_id.label("invoice_id"),
             func.coalesce(func.sum(Payment.amount), 0).label("amount_paid"),
         )
-        .where(Payment.business_id == business_id)
+        .where(
+            Payment.business_id == business_id,
+            Payment.voided_at.is_(None),
+        )
         .group_by(Payment.invoice_id)
         .subquery()
     )
@@ -143,6 +146,7 @@ def get_customer_summary(
         .join(Lead, Invoice.lead_id == Lead.id)
         .where(
             Payment.business_id == business_id,
+            Payment.voided_at.is_(None),
             Invoice.business_id == business_id,
             Lead.customer_id == customer_id,
         )

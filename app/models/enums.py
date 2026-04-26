@@ -28,6 +28,9 @@ class LeadActivityType(str, Enum):
     INVOICE_CREATED = "invoice_created"
     INVOICE_APPROVED = "invoice_approved"
     PAYMENT_RECORDED = "payment_recorded"
+    PAYMENT_EDITED = "payment_edited"
+    PAYMENT_VOIDED = "payment_voided"
+    PAYMENT_MOVED = "payment_moved"
 
 
 class QuoteStatus(str, Enum):

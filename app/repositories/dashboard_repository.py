@@ -63,7 +63,10 @@ def fetch_monthly_collections(
         0,
     )
 
-    statement = select(this_month_sum, last_month_sum).where(Payment.business_id == business_id)
+    statement = select(this_month_sum, last_month_sum).where(
+        Payment.business_id == business_id,
+        Payment.voided_at.is_(None),
+    )
     return session.exec(statement).one()
 
 
@@ -77,7 +80,10 @@ def fetch_outstanding_and_overdue(
             Payment.invoice_id.label("invoice_id"),
             func.coalesce(func.sum(Payment.amount), 0).label("amount_paid"),
         )
-        .where(Payment.business_id == business_id)
+        .where(
+            Payment.business_id == business_id,
+            Payment.voided_at.is_(None),
+        )
         .group_by(Payment.invoice_id)
         .subquery()
     )
