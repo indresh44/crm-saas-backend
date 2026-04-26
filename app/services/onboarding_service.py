@@ -2,6 +2,7 @@
 Onboarding service — shared logic for both chat-based and form-based onboarding.
 """
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -96,18 +97,32 @@ def complete_onboarding(
     session: Session,
     business_id: UUID,
     method: str,
-) -> Business:
-    """Mark onboarding as completed."""
+) -> tuple[Business, bool]:
+    """
+    Mark onboarding as completed.
+
+    Returns ``(business, should_send_welcome_email)``. The flag is True
+    only on the first call that sets ``welcome_email_sent_at`` — subsequent
+    calls (e.g. retries) return False so the caller doesn't double-queue
+    the welcome email. The DB write is the single source of truth for
+    idempotency; the caller is expected to actually send the email outside
+    this transaction (e.g. via FastAPI ``BackgroundTasks``).
+    """
     business = get_business_by_id(session, business_id)
     if not business:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Business not found")
 
     business.onboarding_status = "completed"
     business.onboarding_method = method
+
+    should_send_welcome_email = business.welcome_email_sent_at is None
+    if should_send_welcome_email:
+        business.welcome_email_sent_at = datetime.now(timezone.utc)
+
     session.add(business)
     session.commit()
     session.refresh(business)
-    return business
+    return business, should_send_welcome_email
 
 
 def get_pipeline_preview(persona: str) -> list[dict]:

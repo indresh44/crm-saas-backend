@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from pydantic import BaseModel
 from sqlmodel import Session
 
@@ -16,7 +16,7 @@ from app.core.config import settings
 from app.core.database import get_session
 from app.core.dependencies import get_current_user
 from app.models.user import User
-from app.services import onboarding_service
+from app.services import email_service, onboarding_service
 
 logger = logging.getLogger(__name__)
 
@@ -160,15 +160,28 @@ def add_catalog_item(
 @router.post("/complete", response_model=CompleteOnboardingResponse)
 def complete_onboarding(
     data: CompleteOnboardingRequest,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> CompleteOnboardingResponse:
     """Mark onboarding as completed."""
-    business = onboarding_service.complete_onboarding(
+    business, should_send_welcome_email = onboarding_service.complete_onboarding(
         session=session,
         business_id=current_user.business_id,
         method=data.method,
     )
+
+    if should_send_welcome_email:
+        first_name = (current_user.name or "").strip().split(" ")[0] or "there"
+        background_tasks.add_task(
+            email_service.send_welcome_email,
+            to_email=current_user.email,
+            user_first_name=first_name,
+            business_name=business.name,
+            business_type=business.business_type,
+            app_url=settings.FRONTEND_BASE_URL,
+        )
+
     return CompleteOnboardingResponse(onboarding_status=business.onboarding_status)
 
 

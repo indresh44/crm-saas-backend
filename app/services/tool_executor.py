@@ -2015,11 +2015,16 @@ class ToolExecutor:
     async def _complete_onboarding(self, business_id: UUID, args: dict[str, Any]) -> dict[str, Any]:  # noqa: ARG002
         from app.services import onboarding_service
 
-        business = onboarding_service.complete_onboarding(
+        business, _should_send_welcome_email = onboarding_service.complete_onboarding(
             session=self.session,
             business_id=business_id,
             method="chat",
         )
+        # Welcome email sending from the chat path is intentionally skipped:
+        # the tool executor doesn't have a request-scoped BackgroundTasks
+        # instance, and the chat onboarding flow is currently dormant. If
+        # chat onboarding is re-enabled, hook the email send in here using
+        # the business's owner user email.
         return {
             "data": {
                 "onboarding_status": business.onboarding_status,

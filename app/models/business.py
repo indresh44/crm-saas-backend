@@ -56,6 +56,7 @@ class BusinessBase(SQLModel):
     invoice_notes: Optional[str] = Field(default=None, max_length=500, nullable=True)
     invoice_footer: Optional[str] = Field(default=None, max_length=500, nullable=True)
     default_sac_code: Optional[str] = Field(default=None, max_length=20, nullable=True)
+    welcome_email_sent_at: Optional[datetime] = Field(default=None, nullable=True)
 
 
 class BusinessCreate(BusinessBase):

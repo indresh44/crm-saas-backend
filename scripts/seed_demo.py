@@ -239,7 +239,7 @@ def setup_pipeline(session: Session, business_id: UUID) -> dict[str, PipelineSta
         session=session,
         business_id=business_id,
         method="form",
-    )
+    )  # returns (business, should_send_welcome_email) — seed script ignores both
 
     pipeline = session.exec(
         select(Pipeline).where(Pipeline.business_id == business_id)

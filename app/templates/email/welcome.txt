@@ -1,0 +1,47 @@
+Welcome to SellNSettle, {{ user_first_name }}!
+
+From first enquiry to final payment — finally, a CRM that fits how you
+actually run your business. Not bloated. Not confusing. Just simple.
+
+Get started: {{ app_url }}
+
+──────────────────────────────────────────────────
+
+Recent leads (a taste of what your dashboard will look like):
+
+{% for lead in recent_leads %}- {{ lead.name }} — {{ lead.desc }}  [{{ lead.badge_label }}]
+{% endfor %}
+──────────────────────────────────────────────────
+
+Built around your workflow:
+
+  1. Capture every enquiry — Add leads in seconds. Track stage,
+     budget, and next follow-up so nothing slips.
+
+  2. Send GST invoices fast — Professional GST-ready invoices in
+     under a minute. Share on WhatsApp with one tap.
+
+  3. Get paid on time — Track who owes what. Send polite payment
+     reminders without the awkwardness.
+
+──────────────────────────────────────────────────
+
+Bonus: AI assistant in your pocket. Just ask — "show me overdue
+payments", "create invoice for Rajesh" — it's there when you need
+it, invisible when you don't.
+
+──────────────────────────────────────────────────
+
+Ready in 5 minutes — add your business details, GST number, and
+your first lead. You'll be sending invoices the same day.
+
+Complete setup: {{ app_url }}
+
+──────────────────────────────────────────────────
+
+Need help? Reply to this email — the founder reads every message
+personally.
+
+— SellNSettle
+© {{ year }} SellNSettle. Built in Bangalore for India's growing
+businesses.

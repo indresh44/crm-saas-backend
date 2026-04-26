@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Welcome to SellNSettle</title>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #e8e8e8;
+    margin: 0; padding: 32px 0;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    color: #0a192f;
+    text-align: center;
+    -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+  }
+  .email-wrap {
+    width: 100%; max-width: 1024px; margin: 0 auto;
+    background: #fff; text-align: left;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.1);
+  }
+
+  /* 1. HEADER */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 48px; height: 80px;
+  }
+  .wm { font-size: 22px; font-weight: 800; color: #EA8A1B; letter-spacing: -0.02em; }
+  .header .welcome-text { font-size: 14px; font-weight: 500; color: #0a192f; }
+
+  /* 2. HERO — block layout (no flex) so all email clients stack reliably */
+  .hero {
+    margin: 0 36px; padding: 48px 52px;
+    background: #F4F6FB; border-radius: 20px;
+    text-align: center;
+    position: relative; overflow: hidden;
+  }
+  .hero-left {
+    display: block; width: 100%; max-width: 540px;
+    margin: 0 auto 36px;
+  }
+  .hero-left h1 {
+    font-size: 40px; font-weight: 800; letter-spacing: -0.04em;
+    line-height: 1.1; color: #0a192f; margin-bottom: 16px;
+  }
+  .hero-left .sub {
+    font-size: 15.5px; line-height: 1.65; color: #3a4a5c;
+    margin: 0 auto 28px;
+  }
+  .cta {
+    display: inline-block; background: #FF6B6B; color: #fff;
+    font-size: 15px; font-weight: 700; padding: 13px 30px;
+    border-radius: 10px; text-decoration: none;
+  }
+
+  /* Dashboard mockup */
+  .hero-right {
+    display: block; width: 100%; max-width: 420px;
+    margin: 0 auto; position: relative;
+  }
+  .dash {
+    background: #fff; border-radius: 16px;
+    box-shadow: 0 12px 48px rgba(10,25,47,0.12), 0 0 0 1px rgba(10,25,47,0.04);
+    transform: perspective(900px) rotateY(-4deg) rotateX(1.5deg);
+    overflow: hidden; position: relative; z-index: 2;
+    text-align: left;
+  }
+  .dash-bar {
+    padding: 12px 18px; border-bottom: 1px solid #eef1f6;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .dash-dot { width: 7px; height: 7px; border-radius: 50%; }
+  .dash-bar .wm-sm { font-size: 12px; font-weight: 800; color: #EA8A1B; margin-left: 6px; }
+  .stat-row {
+    display: flex; gap: 10px; padding: 14px 18px 10px;
+  }
+  .stat-card {
+    flex: 1; border-radius: 10px; padding: 10px 12px;
+  }
+  .stat-card .stat-num { font-size: 18px; font-weight: 800; letter-spacing: -0.03em; }
+  .stat-card .stat-label { font-size: 10px; font-weight: 600; opacity: 0.7; margin-top: 2px; }
+  .sc-coral { background: #fff0f0; color: #FF6B6B; }
+  .sc-gold { background: #fdf6e3; color: #b8942a; }
+  .sc-teal { background: #eafaf8; color: #22a99d; }
+  .lead-list { padding: 6px 18px 16px; }
+  .lead-list .ll-title {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #8a95a5; margin-bottom: 8px;
+  }
+  .lead-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 0; border-bottom: 1px solid #f2f4f8;
+  }
+  .lead-row:last-child { border-bottom: none; }
+  .lead-name { font-size: 12px; font-weight: 600; color: #0a192f; }
+  .lead-desc { font-size: 11px; color: #6a7a8a; margin-top: 1px; }
+  .lead-badge {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.05em;
+    padding: 3px 8px; border-radius: 5px;
+  }
+  .lb-new { background: #fff0f0; color: #FF6B6B; }
+  .lb-quoted { background: #fdf6e3; color: #b8942a; }
+  .lb-won { background: #eafaf8; color: #22a99d; }
+
+  /* Plant */
+  .plant {
+    position: absolute; bottom: -6px; right: -2px; z-index: 3;
+    width: 60px; height: 60px;
+  }
+  .plant svg { width: 100%; height: 100%; }
+  .sparkle { position: absolute; top: 14px; right: 18px; z-index: 3; }
+  .sparkle svg { width: 26px; height: 26px; }
+
+  /* 3. WORKFLOW */
+  .workflow { padding: 52px 56px 44px; text-align: center; }
+  .label-sm {
+    font-size: 11.5px; font-weight: 700; letter-spacing: 0.14em;
+    text-transform: uppercase; color: #FF6B6B; margin-bottom: 10px;
+  }
+  .workflow h2 {
+    font-size: 28px; font-weight: 800; letter-spacing: -0.035em;
+    color: #0a192f; margin-bottom: 40px;
+  }
+  .workflow-row {
+    display: flex; align-items: flex-start; gap: 0;
+  }
+  .wf-col { flex: 1; text-align: center; padding: 0 12px; }
+  .wf-num {
+    width: 56px; height: 56px; border-radius: 14px; margin: 0 auto 16px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px; font-weight: 800;
+    text-align: center; line-height: 56px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+  }
+  .wn-coral { background: #fff0f0; color: #FF6B6B; }
+  .wn-teal { background: #eafaf8; color: #2EC4B6; }
+  .wn-gold { background: #fdf6e3; color: #D4AF37; }
+  .wf-col h3 {
+    font-size: 16px; font-weight: 700; color: #0a192f; margin-bottom: 8px;
+    letter-spacing: -0.02em;
+  }
+  .wf-col p { font-size: 13.5px; line-height: 1.6; color: #5a6a7a; }
+  .wf-arrow {
+    display: flex; align-items: center; padding-top: 16px;
+    color: #c8cfd8; flex-shrink: 0;
+  }
+  .wf-arrow svg { width: 28px; height: 28px; }
+
+  /* 4. AI CALLOUT */
+  .ai-callout {
+    margin: 0 56px; padding: 28px 32px;
+    border: 1.5px solid #ffe0e0; border-radius: 14px;
+    display: flex; align-items: center; gap: 20px;
+  }
+  .ai-icon {
+    width: 48px; height: 48px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .ai-body { flex: 1; }
+  .ai-body .label-sm { margin-bottom: 4px; font-size: 10.5px; }
+  .ai-body h4 {
+    font-size: 16px; font-weight: 700; color: #0a192f;
+    letter-spacing: -0.02em; margin-bottom: 6px;
+  }
+  .ai-body p { font-size: 13.5px; line-height: 1.6; color: #5a6a7a; }
+
+  /* 5. SETUP NUDGE — block layout, all styles applied inline on the div + children */
+  .setup-nudge { display: block; }
+
+  /* 6. HELP */
+  .help-block {
+    padding: 40px 56px;
+    display: flex; align-items: center; gap: 20px;
+  }
+  .help-icon {
+    width: 50px; height: 50px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .help-icon svg { width: 22px; height: 22px; }
+  .help-text h4 { font-size: 16px; font-weight: 700; color: #0a192f; margin-bottom: 4px; }
+  .help-text p { font-size: 13.5px; line-height: 1.6; color: #5a6a7a; }
+  .help-text a {
+    color: #FF6B6B; text-decoration: underline; font-weight: 600;
+    text-underline-offset: 3px;
+  }
+
+  /* 7. FOOTER */
+  .footer { border-top: 1px solid #e8ecf2; margin: 0 48px; padding: 26px 0 34px; }
+  .footer-top {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 18px;
+  }
+  .social-icons { display: flex; gap: 14px; }
+  .social-icons svg { width: 17px; height: 17px; fill: #0a192f; opacity: 0.45; }
+  .footer-bottom {
+    text-align: center; font-size: 12px; color: #8a95a5; line-height: 1.9;
+  }
+  .footer-bottom a {
+    color: #FF6B6B; text-decoration: underline; font-weight: 600;
+    text-underline-offset: 2px;
+  }
+
+  /* ── MOBILE (≤ 600px) ───────────────────────────────────────────────── */
+  @media only screen and (max-width: 600px) {
+    body { padding: 0 !important; }
+    .email-wrap { width: 100% !important; box-shadow: none !important; }
+
+    /* Header */
+    .header { padding: 0 20px !important; height: 64px !important; }
+    .wm { font-size: 18px !important; }
+
+    /* Hero — stack columns */
+    .hero {
+      margin: 0 12px !important;
+      padding: 28px 20px !important;
+      flex-direction: column !important;
+      gap: 24px !important;
+      align-items: stretch !important;
+      border-radius: 14px !important;
+    }
+    .hero-left h1 { font-size: 28px !important; margin-bottom: 12px !important; }
+    .hero-left .sub { font-size: 14px !important; max-width: 100% !important; margin-bottom: 20px !important; }
+    .cta { padding: 11px 22px !important; font-size: 14px !important; }
+    .hero-right { width: 100% !important; }
+    .dash { transform: none !important; }
+    .stat-card .stat-num { font-size: 16px !important; }
+    .sparkle { top: 8px !important; right: 10px !important; }
+    .sparkle svg { width: 18px !important; height: 18px !important; }
+
+    /* Workflow — stack steps with vertical arrows between */
+    .workflow { padding: 32px 20px 24px !important; }
+    .workflow h2 { font-size: 22px !important; margin-bottom: 24px !important; }
+    .workflow-row { flex-direction: column !important; gap: 16px !important; align-items: center !important; }
+    .wf-col { padding: 0 !important; width: 100% !important; }
+    .wf-arrow { padding-top: 0 !important; transform: rotate(90deg) !important; }
+    .wf-arrow svg { width: 22px !important; height: 22px !important; }
+
+    /* AI callout — keep icon + text side by side, just shrink padding */
+    .ai-callout {
+      margin: 0 12px !important;
+      padding: 18px 16px !important;
+    }
+
+    /* Setup nudge — stack checklist ticks vertically on narrow viewports */
+    .setup-nudge {
+      margin: 24px 12px 0 !important;
+      padding: 28px 20px !important;
+      border-radius: 14px !important;
+      text-align: center !important;
+    }
+    .setup-nudge table tr,
+    .setup-nudge table td {
+      display: block !important;
+      width: 100% !important;
+      padding: 6px 0 !important;
+      text-align: center !important;
+    }
+
+    /* Help block — keep icon + text side by side, shrink padding */
+    .help-block { padding: 28px 20px !important; }
+
+    /* Footer */
+    .footer { margin: 0 20px !important; padding: 20px 0 26px !important; }
+  }
+</style>
+</head>
+<body>
+<div class="email-wrap">
+
+  <!-- 1. HEADER -->
+  <div class="header">
+    <div class="wm" style="line-height:1;">
+      <img src="cid:sellnsettle-logo" alt="" width="26" height="26" style="display:inline-block; width:26px; height:26px; vertical-align:middle; margin-right:10px; border:0;">
+      <span style="vertical-align:middle;">SellNSettle</span>
+    </div>
+    <div class="welcome-text">🙏 Welcome aboard!</div>
+  </div>
+
+  <!-- 2. HERO -->
+  <div class="hero" style="margin: 0 24px; padding: 44px 24px 36px; background: #F8FAFF; border-radius: 20px; text-align: center;">
+
+    <h1 style="font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 32px; font-weight: 800; letter-spacing: -0.035em; line-height: 1.15; color: #0a192f; margin: 0 0 14px;">
+      Welcome, {{ user_first_name }} 🎉
+    </h1>
+
+    <p style="font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif; font-size: 15.5px; line-height: 1.6; color: #475569; max-width: 460px; margin: 0 auto 28px;">
+      You're set up as a <strong style="color:#0a192f; font-weight:700;">{{ persona_label }}</strong>. From first enquiry to final payment — without the chaos.
+    </p>
+
+    <a href="{{ app_url }}" style="display: inline-block; background: #FF6B6B; color: #ffffff; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 15px; font-weight: 700; padding: 14px 32px; border-radius: 10px; text-decoration: none; letter-spacing: -0.005em;">
+      Open Dashboard &rarr;
+    </a>
+
+    <!-- Spacer between CTA and dashboard -->
+    <div style="height: 36px; line-height: 36px; font-size: 0;">&nbsp;</div>
+
+    <!-- DASHBOARD MOCKUP -->
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" width="420" style="width: 100%; max-width: 420px; margin: 0 auto; border-collapse: separate; background: #ffffff; border-radius: 16px; box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.04); overflow: hidden;">
+
+      <!-- Browser-style header bar -->
+      <tr>
+        <td style="padding: 13px 18px; border-bottom: 1px solid #eef1f6; text-align: left;" align="left">
+          <span style="display: inline-block; width: 8px; height: 8px; background: #ff5f57; border-radius: 50%; margin-right: 5px; vertical-align: middle;"></span>
+          <span style="display: inline-block; width: 8px; height: 8px; background: #febc2e; border-radius: 50%; margin-right: 5px; vertical-align: middle;"></span>
+          <span style="display: inline-block; width: 8px; height: 8px; background: #28c840; border-radius: 50%; margin-right: 10px; vertical-align: middle;"></span>
+          <img src="cid:sellnsettle-logo" alt="" width="14" height="14" style="display:inline-block; width:14px; height:14px; vertical-align:middle; margin-right:5px; border:0;">
+          <span style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 12px; font-weight: 800; color: #EA8A1B; letter-spacing: -0.01em; vertical-align: middle;">SellNSettle</span>
+        </td>
+      </tr>
+
+      <!-- Stats row -->
+      <tr>
+        <td style="padding: 16px 12px 4px;">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="border-collapse: separate; border-spacing: 6px 0;">
+            <tr>
+              <td align="left" valign="top" width="33%" style="width: 33.33%; background: #fff0f0; border-radius: 10px; padding: 12px 14px; text-align: left; vertical-align: top;">
+                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 22px; font-weight: 800; color: #FF6B6B; letter-spacing: -0.03em; line-height: 1.1; text-align: left;">8</div>
+                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 10px; font-weight: 700; color: #FF6B6B; opacity: 0.8; margin-top: 4px; letter-spacing: 0.06em; text-transform: uppercase; text-align: left;">Active Leads</div>
+              </td>
+              <td align="left" valign="top" width="33%" style="width: 33.33%; background: #fdf6e3; border-radius: 10px; padding: 12px 14px; text-align: left; vertical-align: top;">
+                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 22px; font-weight: 800; color: #b8942a; letter-spacing: -0.03em; line-height: 1.1; text-align: left;">₹4.2L</div>
+                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 10px; font-weight: 700; color: #b8942a; opacity: 0.8; margin-top: 4px; letter-spacing: 0.06em; text-transform: uppercase; text-align: left;">Pending</div>
+              </td>
+              <td align="left" valign="top" width="33%" style="width: 33.33%; background: #eafaf8; border-radius: 10px; padding: 12px 14px; text-align: left; vertical-align: top;">
+                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 22px; font-weight: 800; color: #22a99d; letter-spacing: -0.03em; line-height: 1.1; text-align: left;">8</div>
+                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 10px; font-weight: 700; color: #22a99d; opacity: 0.8; margin-top: 4px; letter-spacing: 0.06em; text-transform: uppercase; text-align: left;">Paid</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+
+      <!-- Divider between stats and leads -->
+      <tr>
+        <td style="padding: 16px 18px 0;">
+          <div style="height: 1px; background: #eef1f6; line-height: 1px; font-size: 0;">&nbsp;</div>
+        </td>
+      </tr>
+
+      <!-- Recent Leads section title -->
+      <tr>
+        <td align="left" style="padding: 14px 18px 6px; text-align: left;">
+          <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #94a3b8; text-align: left;">Recent Leads</div>
+        </td>
+      </tr>
+
+      <!-- Lead rows -->
+      {% for lead in recent_leads[:3] %}
+      <tr>
+        <td style="padding: 0 18px;">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="border-collapse: collapse;">
+            <tr>
+              <td align="left" valign="middle" style="text-align: left; vertical-align: middle; padding: 10px 0;{% if not loop.last %} border-bottom: 1px solid #f2f4f8;{% endif %}">
+                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13px; font-weight: 600; color: #0a192f; line-height: 1.3; text-align: left;">{{ lead.name }}</div>
+                <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 11.5px; color: #64748b; margin-top: 2px; line-height: 1.4; text-align: left;">{{ lead.desc }}</div>
+              </td>
+              <td align="right" valign="middle" style="text-align: right; vertical-align: middle; padding: 10px 0;{% if not loop.last %} border-bottom: 1px solid #f2f4f8;{% endif %} white-space: nowrap;">
+                {% if lead.badge_class == 'lb-new' %}
+                  <span style="display: inline-block; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em; padding: 4px 9px; border-radius: 5px; background: #fff0f0; color: #FF6B6B; text-transform: uppercase;">{{ lead.badge_label }}</span>
+                {% elif lead.badge_class == 'lb-quoted' %}
+                  <span style="display: inline-block; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em; padding: 4px 9px; border-radius: 5px; background: #fdf6e3; color: #b8942a; text-transform: uppercase;">{{ lead.badge_label }}</span>
+                {% elif lead.badge_class == 'lb-won' %}
+                  <span style="display: inline-block; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em; padding: 4px 9px; border-radius: 5px; background: #eafaf8; color: #22a99d; text-transform: uppercase;">{{ lead.badge_label }}</span>
+                {% else %}
+                  <span style="display: inline-block; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 9.5px; font-weight: 800; letter-spacing: 0.08em; padding: 4px 9px; border-radius: 5px; background: #f1f5f9; color: #64748b; text-transform: uppercase;">{{ lead.badge_label }}</span>
+                {% endif %}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      {% endfor %}
+
+      <!-- Bottom padding -->
+      <tr>
+        <td style="height: 12px; line-height: 12px; font-size: 0;">&nbsp;</td>
+      </tr>
+
+    </table>
+
+  </div>
+
+  <!-- 3. WORKFLOW -->
+  <div class="workflow">
+    <div class="label-sm">Built around your workflow</div>
+    <h2>Enquiry to invoice to paid. That's it.</h2>
+    <div class="workflow-row">
+      <div class="wf-col">
+        <div class="wf-num wn-coral">1</div>
+        <h3>Capture every enquiry</h3>
+        <p>Add leads in seconds. Track stage, budget, and next follow-up — so nothing slips.</p>
+      </div>
+      <div class="wf-arrow">
+        <svg viewBox="0 0 28 28" fill="none"><path d="M6 14h16m0 0l-5-5m5 5l-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      </div>
+      <div class="wf-col">
+        <div class="wf-num wn-teal">2</div>
+        <h3>Send GST invoices fast</h3>
+        <p>Professional GST-ready invoices in under a minute. Share on WhatsApp with one tap.</p>
+      </div>
+      <div class="wf-arrow">
+        <svg viewBox="0 0 28 28" fill="none"><path d="M6 14h16m0 0l-5-5m5 5l-5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      </div>
+      <div class="wf-col">
+        <div class="wf-num wn-gold">3</div>
+        <h3>Get paid on time</h3>
+        <p>Track who owes what. Send polite payment reminders without the awkwardness.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. AI CALLOUT -->
+  <div class="ai-callout">
+    <div class="ai-icon" style="line-height: 48px; text-align: center; font-size: 28px;">
+      <span style="vertical-align: middle; line-height: 48px;">&#x2728;</span>
+    </div>
+    <div class="ai-body">
+      <div class="label-sm">Bonus</div>
+      <h4>Got an AI Assistant in your pocket too.</h4>
+      <p>When you're in a hurry, just ask. "Show me overdue payments." "Create invoice for Rajesh." It's there when you need it — invisible when you don't.</p>
+    </div>
+  </div>
+
+  <!-- 5. SETUP NUDGE -->
+  <div class="setup-nudge" style="margin: 36px 24px 0; padding: 36px 28px; background: #F4F6FB; border-radius: 20px; text-align: center;">
+
+    <!-- 1. Heading -->
+    <h3 style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 24px; font-weight: 800; letter-spacing: -0.035em; color: #0a192f; margin: 0 0 24px;">Set up your business in minutes.</h3>
+
+    <!-- 2. Checklist row (3 ticks side by side) -->
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin: 0 auto 24px; border-collapse: collapse;">
+      <tr>
+        <td style="padding: 0 12px; vertical-align: middle; white-space: nowrap;">
+          <span style="display: inline-block; width: 22px; height: 22px; line-height: 22px; border-radius: 6px; background: #2EC4B6; color: #ffffff; font-size: 14px; font-weight: 800; text-align: center; vertical-align: middle;">&#10003;</span>
+          <span style="display: inline-block; margin-left: 8px; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13.5px; font-weight: 600; color: #0a192f; vertical-align: middle;">Add a lead</span>
+        </td>
+        <td style="padding: 0 12px; vertical-align: middle; white-space: nowrap;">
+          <span style="display: inline-block; width: 22px; height: 22px; line-height: 22px; border-radius: 6px; background: #2EC4B6; color: #ffffff; font-size: 14px; font-weight: 800; text-align: center; vertical-align: middle;">&#10003;</span>
+          <span style="display: inline-block; margin-left: 8px; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13.5px; font-weight: 600; color: #0a192f; vertical-align: middle;">Send an invoice</span>
+        </td>
+        <td style="padding: 0 12px; vertical-align: middle; white-space: nowrap;">
+          <span style="display: inline-block; width: 22px; height: 22px; line-height: 22px; border-radius: 6px; background: #2EC4B6; color: #ffffff; font-size: 14px; font-weight: 800; text-align: center; vertical-align: middle;">&#10003;</span>
+          <span style="display: inline-block; margin-left: 8px; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13.5px; font-weight: 600; color: #0a192f; vertical-align: middle;">Record a payment</span>
+        </td>
+      </tr>
+    </table>
+
+    <!-- 3. Label -->
+    <div style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 11.5px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #FF6B6B; margin-bottom: 10px;">Ready in 5 minutes</div>
+
+    <!-- 4. Description -->
+    <p style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 14.5px; line-height: 1.6; color: #5a6a7a; max-width: 520px; margin: 0 auto 24px;">Add your business details, GST number, and your first lead. You'll be sending invoices the same day.</p>
+
+    <!-- 5. CTA -->
+    <a href="{{ app_url }}" style="display: inline-block; background: #FF6B6B; color: #ffffff; font-family: 'Plus Jakarta Sans', sans-serif; font-size: 15px; font-weight: 700; padding: 13px 30px; border-radius: 10px; text-decoration: none;">Complete Setup &rarr;</a>
+  </div>
+
+  <!-- 6. HELP -->
+  <div class="help-block">
+    <div class="help-icon" style="line-height: 50px; text-align: center; font-size: 24px;">
+      <span style="vertical-align: middle; line-height: 50px;">&#x1F3A7;</span>
+    </div>
+    <div class="help-text">
+      <h4>Need help?</h4>
+      <p>Reply to this email — the founder reads every message personally. Or visit our <a href="{{ app_url }}">Help Center</a>.</p>
+    </div>
+  </div>
+
+  <!-- 7. FOOTER -->
+  <div class="footer">
+    <div class="footer-top">
+      <div class="wm" style="font-size:18px; line-height:1;">
+        <img src="cid:sellnsettle-logo" alt="" width="20" height="20" style="display:inline-block; width:20px; height:20px; vertical-align:middle; margin-right:8px; border:0;">
+        <span style="vertical-align:middle;">SellNSettle</span>
+      </div>
+      <div class="social-icons">
+        <svg viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"></path></svg>
+        <svg viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"></path></svg>
+        <svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"></path></svg>
+        <svg viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"></path></svg>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      © {{ year }} SellNSettle. Built for India's growing businesses.<br>
+      Bangalore, Karnataka, India<br>
+      <a href="{{ app_url }}/unsubscribe">Unsubscribe</a>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
