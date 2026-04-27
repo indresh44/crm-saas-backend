@@ -29,6 +29,7 @@ from app.api.v1.whatsapp_messages import router as whatsapp_messages_router
 from app.api.v1.public_invoices import router as public_invoices_router
 from app.api.v1.onboarding import router as onboarding_router
 from app.api.v1.whatsapp_webhooks import router as whatsapp_webhooks_router
+from app.core.config import settings
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
@@ -92,6 +93,16 @@ app.include_router(whatsapp_conversations_router, prefix="/api/v1", tags=["whats
 app.include_router(whatsapp_messages_router, prefix="/api/v1", tags=["whatsapp-messages"])
 app.include_router(whatsapp_webhooks_router, prefix="/api/v1", tags=["whatsapp-webhooks"])
 app.include_router(public_invoices_router, prefix="/api/public", tags=["public-invoices"])
+
+
+# Admin router is only registered when explicitly enabled via env var.
+# In production neither ENABLE_ADMIN_ROUTES nor SUPER_ADMIN_EMAILS is set,
+# so /api/admin/* returns 404 — the routes literally do not exist.
+# See Docs/plans/admin-panel.md.
+if settings.ENABLE_ADMIN_ROUTES:
+    from app.api.admin import router as admin_router
+
+    app.include_router(admin_router, prefix="/api/admin")
 
 
 @app.get("/health")

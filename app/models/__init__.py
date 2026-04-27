@@ -1,3 +1,4 @@
+from app.models.admin_audit_log import AdminAuditLog, AdminAuditLogRead
 from app.models.auth_identity import AuthIdentity, AuthIdentityRead
 from app.models.auth_schemas import AuthResponse, LoginRequest, MessageResponse, RefreshRequest, RegisterRequest
 from app.models.attachment import Attachment, AttachmentRead
@@ -79,6 +80,8 @@ from app.models.whatsapp_message_event import (
 )
 
 __all__ = [
+    "AdminAuditLog",
+    "AdminAuditLogRead",
     "AuthIdentity",
     "AuthIdentityRead",
     "AuthResponse",

@@ -28,6 +28,13 @@ class Settings(BaseSettings):
     EMAIL_FROM_ADDRESS: str = "noreply@sellnsettle.com"
     EMAIL_FROM_NAME: str = "SellNSettle"
 
+    # Admin panel (local-only). Both flags must be set for admin endpoints
+    # to be registered. In production neither is set, so /api/admin/* returns
+    # 404 even with a valid JWT — the routes literally don't exist.
+    # See Docs/plans/admin-panel.md for the full architecture.
+    ENABLE_ADMIN_ROUTES: bool = False
+    SUPER_ADMIN_EMAILS: str = ""  # comma-separated list
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
