@@ -42,6 +42,7 @@ def get_invoice_meta(
         customer_name=customer_name,
         business_name=business_name,
         items_count=items_count,
+        updated_at=invoice.updated_at,
     )
 
 

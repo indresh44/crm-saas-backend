@@ -6,7 +6,7 @@ import uuid
 from sqlalchemy import Enum as SaEnum
 from sqlmodel import Field, Relationship, SQLModel
 
-from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin
+from app.models.common import CreatedAtMixin, UpdatedAtMixin, UUIDPrimaryKeyMixin
 from app.models.enums import InvoiceStatus
 from app.models.invoice_item import InvoiceItem, InvoiceItemRead
 
@@ -45,6 +45,7 @@ class InvoiceCreate(InvoiceCreateFields):
 class InvoiceRead(InvoiceBase):
     id: uuid.UUID
     created_at: CreatedAtMixin.__annotations__["created_at"]
+    updated_at: datetime
 
 
 class InvoiceReadWithItems(InvoiceRead):
@@ -80,9 +81,13 @@ class InvoicePublicMeta(SQLModel):
     customer_name: Optional[str] = None
     business_name: str = ""
     items_count: int = 0
+    # `updated_at` lets the frontend bust WhatsApp / social-media OG-preview
+    # caches by appending `?v={ts}` to share URLs while the invoice is still
+    # editable (draft/sent). Once approved, the URL goes back to canonical.
+    updated_at: datetime
 
 
-class Invoice(InvoiceBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
+class Invoice(InvoiceBase, UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, table=True):
     __tablename__ = "invoices"
 
     business_id: uuid.UUID = Field(foreign_key="businesses.id", index=True)
