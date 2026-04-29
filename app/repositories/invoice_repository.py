@@ -142,6 +142,7 @@ def list_invoices_enriched(
     from_date: date | None = None,
     to_date: date | None = None,
     lead_id: UUID | None = None,
+    invoice_number: str | None = None,
     limit: int = 20,
     offset: int = 0,
     exclude_draft: bool = False,
@@ -204,6 +205,13 @@ def list_invoices_enriched(
 
     if lead_id is not None:
         statement = statement.where(Invoice.lead_id == lead_id)
+
+    if invoice_number:
+        # Case-insensitive substring match. Sanitize wildcards from user
+        # input so a typed "%" or "_" doesn't escape the LIKE pattern.
+        sanitized = invoice_number.strip().replace("%", "").replace("_", "")
+        if sanitized:
+            statement = statement.where(Invoice.invoice_number.ilike(f"%{sanitized}%"))
 
     filtered_sq = statement.order_by(None).subquery()
     total = session.exec(select(func.count()).select_from(filtered_sq)).one()
