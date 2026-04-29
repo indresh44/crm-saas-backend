@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 from app.models.attachment import Attachment
 from app.models.enums import AttachmentEntityType
 from app.models.invoice_item import InvoiceItem
+from app.models.lead import LeadActivity
 from app.models.payment import Payment
 from app.models.user import User
 from app.repositories.attachment_repository import (
@@ -77,6 +78,17 @@ def upload_and_save_attachment(
         entity = session.exec(
             select(InvoiceItem).where(InvoiceItem.id == entity_id)
         ).first()
+    elif entity_type == AttachmentEntityType.LEAD_ACTIVITY:
+        activity = session.exec(
+            select(LeadActivity).where(LeadActivity.id == entity_id)
+        ).first()
+        if activity is not None:
+            lead = get_lead_by_id(
+                session=session,
+                business_id=business_id,
+                lead_id=activity.lead_id,
+            )
+            entity = activity if lead is not None else None
 
     if entity is None:
         raise HTTPException(

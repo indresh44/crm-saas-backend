@@ -84,15 +84,25 @@ class Lead(LeadBase, UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, table=
     )
 
 
-class LeadActivityBase(SQLModel):
-    lead_id: uuid.UUID
+class LeadActivityFields(SQLModel):
+    """Fields supplied on create; lead_id from URL, created_by from current user."""
+
     type: LeadActivityType
     description: str
+
+
+class LeadActivityBase(LeadActivityFields):
+    lead_id: uuid.UUID
     created_by: uuid.UUID
 
 
-class LeadActivityCreate(LeadActivityBase):
+class LeadActivityCreate(LeadActivityFields):
     pass
+
+
+class LeadActivityUpdate(SQLModel):
+    type: Optional[LeadActivityType] = None
+    description: Optional[str] = None
 
 
 class LeadActivityRead(LeadActivityBase):

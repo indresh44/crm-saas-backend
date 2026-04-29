@@ -702,10 +702,8 @@ class ChatOrchestrator:
             current_user=self.current_user,
             lead_id=lead_id,
             data=LeadActivityCreate(
-                lead_id=lead_id,
                 type=LeadActivityType.NOTE,
                 description=note,
-                created_by=self.current_user.id,
             ),
         )
         return {

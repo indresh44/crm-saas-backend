@@ -108,6 +108,7 @@ class CatalogItemUnit(str, Enum):
 
 class AttachmentEntityType(str, Enum):
     LEAD = "lead"
+    LEAD_ACTIVITY = "lead_activity"
     PAYMENT = "payment"
     CATALOG = "catalog"
     QUOTE = "quote"

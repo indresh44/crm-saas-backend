@@ -38,7 +38,7 @@ from app.models.invoice_template_item import (
     InvoiceTemplateItemCreate,
     InvoiceTemplateItemRead,
 )
-from app.models.lead import Lead, LeadActivity, LeadActivityCreate, LeadActivityRead, LeadCreate, LeadRead
+from app.models.lead import Lead, LeadActivity, LeadActivityCreate, LeadActivityRead, LeadActivityUpdate, LeadCreate, LeadRead
 from app.models.lead_followup import LeadFollowup, LeadFollowupCreate, LeadFollowupDone, LeadFollowupRead
 from app.models.message import Message, MessageCreate, MessageRead
 from app.models.meeting import Meeting, MeetingCreate, MeetingRead, MeetingUpdate
@@ -133,6 +133,7 @@ __all__ = [
     "LeadActivity",
     "LeadActivityCreate",
     "LeadActivityRead",
+    "LeadActivityUpdate",
     "LeadCreate",
     "LeadFollowup",
     "LeadFollowupCreate",
