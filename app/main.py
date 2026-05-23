@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.api.v1.agent_chat import router as agent_chat_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.attachments import router as attachments_router
 from app.api.v1.bookings import router as bookings_router
@@ -70,6 +71,7 @@ app.include_router(businesses_router, prefix="/api/v1", tags=["businesses"])
 app.include_router(users_router, prefix="/api/v1", tags=["users"])
 app.include_router(catalog_items_router, prefix="/api/v1", tags=["catalog_items"])
 app.include_router(chat_router, prefix="/api/v1", tags=["chat"])
+app.include_router(agent_chat_router, prefix="/api/v1", tags=["agent-chat"])
 app.include_router(customers_router, prefix="/api/v1", tags=["customers"])
 app.include_router(dashboard_router, prefix="/api/v1", tags=["dashboard"])
 app.include_router(leads_router, prefix="/api/v1", tags=["leads"])
@@ -93,6 +95,14 @@ app.include_router(whatsapp_conversations_router, prefix="/api/v1", tags=["whats
 app.include_router(whatsapp_messages_router, prefix="/api/v1", tags=["whatsapp-messages"])
 app.include_router(whatsapp_webhooks_router, prefix="/api/v1", tags=["whatsapp-webhooks"])
 app.include_router(public_invoices_router, prefix="/api/public", tags=["public-invoices"])
+
+# --- TEST / DEBUG ONLY ----------------------------------------------------
+# Disposable read-model chat endpoint (POST /api/test-chat). Crude token auth,
+# no login. NOT a real API route — see app/read_model/tools/test_chat_api.py.
+from app.read_model.tools.test_chat_api import router as test_chat_router  # noqa: E402
+
+app.include_router(test_chat_router, prefix="/api", tags=["TEST-DEBUG"])
+# --------------------------------------------------------------------------
 
 
 # Admin router is only registered when explicitly enabled via env var.

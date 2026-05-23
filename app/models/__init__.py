@@ -45,6 +45,8 @@ from app.models.meeting import Meeting, MeetingCreate, MeetingRead, MeetingUpdat
 from app.models.notification import Notification, NotificationCreate, NotificationRead
 from app.models.password_reset_token import PasswordResetToken
 from app.models.payment import Payment, PaymentCreate, PaymentRead
+from app.models.agent_chat import AgentChatMessage, AgentChatSession
+from app.models.prepared_action import PreparedAction, STATUS_PENDING, STATUS_CONSUMED
 from app.models.pipeline import (
     Pipeline,
     PipelineCreate,

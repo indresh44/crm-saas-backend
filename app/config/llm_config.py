@@ -4,6 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class LLMSettings(BaseSettings):
     primary_model: str = Field(default="gemini/gemini-3-flash-preview", alias="LLM_PRIMARY_MODEL")
+    # primary_model: str = Field(default="gemini/gemini-3.1-flash-lite-preview", alias="LLM_PRIMARY_MODEL")
     # primary_model: str = Field(default="openai/gpt-5.4-nano", alias="LLM_PRIMARY_MODEL")
     # primary_model: str = Field(default="ollama", alias="LLM_PRIMARY_MODEL")
     # primary_model: str = Field(default="gemini/gemini-2.5-flash", alias="LLM_PRIMARY_MODEL")
