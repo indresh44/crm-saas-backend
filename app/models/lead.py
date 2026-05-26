@@ -1,17 +1,22 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 import uuid
 
-from sqlalchemy import Enum as SaEnum, Index
+from sqlalchemy import Column, Enum as SaEnum, ForeignKey, Index
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin, UpdatedAtMixin
-from app.models.enums import LeadActivityType, LeadSource
+from app.models.enums import ActorType, LeadActivityType, LeadSource
 
 
 def _lead_activity_type_values(enum_class: type[LeadActivityType]) -> list[str]:
     return [activity_type.value for activity_type in enum_class]
+
+
+def _actor_type_values(enum_class: type[ActorType]) -> list[str]:
+    return [a.value for a in enum_class]
 
 
 def _lead_source_values(enum_class: type[LeadSource]) -> list[str]:
@@ -93,7 +98,11 @@ class LeadActivityFields(SQLModel):
 
 class LeadActivityBase(LeadActivityFields):
     lead_id: uuid.UUID
-    created_by: uuid.UUID
+    # NULL-able since 0042 — SYSTEM-actor writes (WhatsApp webhook,
+    # auto-recompute jobs) have no real user. Pre-existing rows from
+    # before 0042 are non-null; new HUMAN/AI/TASK writes are non-null;
+    # only SYSTEM writes legitimately land NULL here. See actor_type.
+    created_by: Optional[uuid.UUID] = None
 
 
 class LeadActivityCreate(LeadActivityFields):
@@ -108,6 +117,13 @@ class LeadActivityUpdate(SQLModel):
 class LeadActivityRead(LeadActivityBase):
     id: uuid.UUID
     created_at: CreatedAtMixin.__annotations__["created_at"]
+    # Diary-side fields added in 0042. NULL on pre-enrichment rows; NOT NULL
+    # going forward for everything that flows through create_lead_activity
+    # (the repository chokepoint stamps actor_type from the ambient context).
+    actor_type: Optional[ActorType] = None
+    payload: Optional[dict[str, Any]] = None
+    chat_session_id: Optional[uuid.UUID] = None
+    task_id: Optional[uuid.UUID] = None
 
 
 class LeadActivity(LeadActivityBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
@@ -122,7 +138,42 @@ class LeadActivity(LeadActivityBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=
             values_callable=_lead_activity_type_values,
         ),
     )
-    created_by: uuid.UUID = Field(foreign_key="users.id", index=True)
+    # NULL since 0042 — see the LeadActivityBase comment above.
+    created_by: Optional[uuid.UUID] = Field(
+        default=None, foreign_key="users.id", index=True, nullable=True,
+    )
+
+    # Diary fields (0042). actor_type/payload may be NULL on pre-existing
+    # rows; for new writes the create_lead_activity chokepoint always
+    # stamps actor_type (defaulting to SYSTEM + warning if unset upstream).
+    actor_type: Optional[ActorType] = Field(
+        default=None,
+        sa_type=SaEnum(
+            ActorType,
+            name="lead_activity_actor_type",
+            create_constraint=False,
+            values_callable=_actor_type_values,
+        ),
+        nullable=True,
+    )
+    payload: Optional[dict[str, Any]] = Field(
+        default=None,
+        sa_column=Column(JSONB, nullable=True),
+    )
+    chat_session_id: Optional[uuid.UUID] = Field(
+        default=None,
+        sa_column=Column(
+            ForeignKey("agent_chat_sessions.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
+    task_id: Optional[uuid.UUID] = Field(
+        default=None,
+        sa_column=Column(
+            ForeignKey("agent_tasks.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
 
 
 class LeadMoveRequest(SQLModel):

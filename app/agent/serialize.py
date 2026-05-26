@@ -29,27 +29,12 @@ from app.agent.observations import TurnRecord
 # JSON-safety boundary
 # ---------------------------------------------------------------------------
 
-def _safe_jsonify(value: Any) -> Any:
-    """Recursively convert a value to something `json.dumps` accepts without a
-    `default=` hook. Mirrors the read-model executor's `to_jsonable`, but lives
-    here because the write surface returns arbitrary capability payloads and
-    those must not bypass this boundary."""
-    if value is None or isinstance(value, (bool, int, float, str)):
-        return value
-    if isinstance(value, Decimal):
-        return str(value)
-    if isinstance(value, (datetime, date)):
-        return value.isoformat()
-    if isinstance(value, UUID):
-        return str(value)
-    if isinstance(value, dict):
-        return {str(k): _safe_jsonify(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_safe_jsonify(v) for v in value]
-    # Anything else (bytes, custom objects) — last-ditch repr. Better than
-    # raising mid-commit. If this fires in practice we tighten the
-    # capability return shape; never the other way round.
-    return str(value)
+# The implementation moved to `app/core/json_safe.py` so business services
+# (invoice, lead, payment) can use it without importing from `app/agent/`
+# (wrong layer direction). This re-export preserves the existing
+# `from app.agent.serialize import _safe_jsonify` imports across the agent
+# subtree.
+from app.core.json_safe import safe_jsonify as _safe_jsonify  # noqa: F401
 
 
 # ---------------------------------------------------------------------------

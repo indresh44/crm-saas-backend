@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlmodel import Session
 
@@ -367,6 +367,460 @@ def test_pg_aggregate_tenant_isolation():
             )
             rows = execute_query(cq, session).rows
             assert rows == [], rows  # another business sees zero groups
+        finally:
+            session.rollback()
+
+
+# ===========================================================================
+# ViaParent tenant scoping — the SECURITY BOUNDARY.
+#
+# pipeline_stages has no business_id column; it reaches a tenant only via
+# pipelines.business_id. The compiler emits an EXISTS subquery with
+# .correlate(model) so the subquery's FROM-clause contains ONLY the parent.
+# A missing/wrong correlate would silently make EXISTS always true, leaking
+# every business's stages to every other business with no compile error.
+# Test 1 below is the structural guard — it must fail loudly if isolation
+# is off, not just "B sees its own rows."
+# ===========================================================================
+
+def _seed_two_business_pipeline_stages(session: Session) -> tuple[UUID, UUID, set[UUID], set[UUID]]:
+    """Seed two isolated businesses, each with one pipeline and two stages.
+    Returns (business_a_id, business_b_id, stage_ids_a, stage_ids_b)."""
+    from app.models.pipeline import Pipeline, PipelineStage  # local to keep top imports tidy
+
+    bid_a, bid_b = uuid4(), uuid4()
+    session.add(Business(id=bid_a, name="Iso Co A", phone="9990000001"))
+    session.add(Business(id=bid_b, name="Iso Co B", phone="9990000002"))
+    session.flush()
+
+    pid_a, pid_b = uuid4(), uuid4()
+    session.add(Pipeline(id=pid_a, business_id=bid_a, name="A Default", is_default=True))
+    session.add(Pipeline(id=pid_b, business_id=bid_b, name="B Default", is_default=True))
+    session.flush()
+
+    stage_ids_a = {uuid4(), uuid4()}
+    stage_ids_b = {uuid4(), uuid4()}
+    names_a = ["New (A)", "Sent (A)"]
+    names_b = ["New (B)", "Sent (B)"]
+    for sid, name, pos in zip(sorted(stage_ids_a), names_a, [1, 2]):
+        session.add(PipelineStage(id=sid, pipeline_id=pid_a, name=name, position=pos, color="#888"))
+    for sid, name, pos in zip(sorted(stage_ids_b), names_b, [1, 2]):
+        session.add(PipelineStage(id=sid, pipeline_id=pid_b, name=name, position=pos, color="#888"))
+    session.flush()
+    return bid_a, bid_b, stage_ids_a, stage_ids_b
+
+
+def test_pg_pipeline_stages_isolation_business_b_contains_zero_of_a():
+    """THE security-boundary test. Asserted as 'B's result contains ZERO of
+    A's stage ids' — not 'B sees its own', because the latter passes even
+    when isolation is off (B sees its own AND A's). If `.correlate(model)`
+    is missing or wrong, the EXISTS becomes vacuously true and B's response
+    will include A's ids — this test fails LOUDLY in that case."""
+    with Session(engine) as session:
+        try:
+            bid_a, bid_b, stage_ids_a, stage_ids_b = _seed_two_business_pipeline_stages(session)
+
+            # As business B, read pipeline_stages.
+            cq_b = compile_query(ReadQuery("pipeline_stages"), business_id=bid_b, now=_NOW)
+            ids_seen_by_b = {UUID(r["id"]) for r in execute_query(cq_b, session).rows}
+
+            # The headline assertion: zero overlap with A's stage ids.
+            leaked = ids_seen_by_b & stage_ids_a
+            assert leaked == set(), (
+                f"TENANT LEAK: business B's pipeline_stages read returned "
+                f"{len(leaked)} of business A's stage ids: {leaked}"
+            )
+
+            # Symmetric: A must see ZERO of B's.
+            cq_a = compile_query(ReadQuery("pipeline_stages"), business_id=bid_a, now=_NOW)
+            ids_seen_by_a = {UUID(r["id"]) for r in execute_query(cq_a, session).rows}
+            leaked_to_a = ids_seen_by_a & stage_ids_b
+            assert leaked_to_a == set(), (
+                f"TENANT LEAK (reverse): business A's read returned "
+                f"{len(leaked_to_a)} of business B's stage ids: {leaked_to_a}"
+            )
+        finally:
+            session.rollback()
+
+
+def test_pg_pipeline_stages_returns_own_rows():
+    """Positive case — B sees exactly its own two stages."""
+    with Session(engine) as session:
+        try:
+            _bid_a, bid_b, _stage_ids_a, stage_ids_b = _seed_two_business_pipeline_stages(session)
+            cq = compile_query(ReadQuery("pipeline_stages"), business_id=bid_b, now=_NOW)
+            rows = execute_query(cq, session).rows
+            assert {UUID(r["id"]) for r in rows} == stage_ids_b, rows
+        finally:
+            session.rollback()
+
+
+def test_pg_pipeline_stages_filter_by_name_contains_is_isolated():
+    """A user filter on the ViaParent entity must compose with tenant scope —
+    no leakage even when the filter would match the other tenant's rows."""
+    with Session(engine) as session:
+        try:
+            _bid_a, bid_b, stage_ids_a, _stage_ids_b = _seed_two_business_pipeline_stages(session)
+            # "Sent" appears in both A and B (Sent (A), Sent (B)).
+            cq = compile_query(
+                ReadQuery("pipeline_stages",
+                          filters=[Filter("name", "contains", "Sent")]),
+                business_id=bid_b, now=_NOW,
+            )
+            rows = execute_query(cq, session).rows
+            ids = {UUID(r["id"]) for r in rows}
+            names = {r["name"] for r in rows}
+            assert names == {"Sent (B)"}, rows
+            assert ids & stage_ids_a == set(), f"filter leaked A's rows: {ids & stage_ids_a}"
+        finally:
+            session.rollback()
+
+
+def test_pg_pipeline_stages_sort_by_position():
+    with Session(engine) as session:
+        try:
+            _bid_a, bid_b, _ids_a, _ids_b = _seed_two_business_pipeline_stages(session)
+            cq = compile_query(
+                ReadQuery("pipeline_stages", sort=[SortKey("position", "asc")]),
+                business_id=bid_b, now=_NOW,
+            )
+            rows = execute_query(cq, session).rows
+            positions = [r["position"] for r in rows]
+            assert positions == sorted(positions), positions
+            assert all(n.endswith("(B)") for n in (r["name"] for r in rows))
+        finally:
+            session.rollback()
+
+
+def test_pg_pipeline_stages_aggregate_count_is_isolated():
+    """Exercises the SECOND _apply_tenant_predicate call site (aggregate).
+    Catches the bug where someone fixes ViaParent in _build_row_query but
+    forgets _build_aggregate_query."""
+    with Session(engine) as session:
+        try:
+            _bid_a, bid_b, _ids_a, stage_ids_b = _seed_two_business_pipeline_stages(session)
+            cq = compile_query(
+                ReadQuery("pipeline_stages", aggregations=[Aggregation("count")]),
+                business_id=bid_b, now=_NOW,
+            )
+            rows = execute_query(cq, session).rows
+            # B has 2 stages; if isolation broke, it would be 4 (A's 2 + B's 2).
+            assert rows == [{"count": len(stage_ids_b)}], rows
+        finally:
+            session.rollback()
+
+
+# ===========================================================================
+# Batch 1 entities — per-entity isolation + correctness on Postgres.
+#
+# 7 new entities: 3 Direct (payments, catalog_items, users) + 4 ViaParent
+# (lead_followups, lead_activities, invoice_items, invoice_adjustments).
+# Each test seeds one row of the entity under business A and one under B,
+# then asserts B's read returns exactly B's row and ZERO of A's. Cross-tenant
+# leak in either direction fails LOUDLY with the leaked ids in the message.
+# A wrong parent_table or local_key in any one declaration would leak that
+# entity — these tests are the per-entity guard.
+# ===========================================================================
+
+from app.models.catalog_item import CatalogItem
+from app.models.enums import (
+    CatalogItemUnit,
+    InvoiceAdjustmentType,
+    LeadActivityType,
+)
+from app.models.invoice_item import InvoiceItem
+from app.models.lead import LeadActivity
+
+
+def _seed_two_business_batch1_fixtures(session: Session):
+    """Seed business A and B, each with one of every Batch 1 entity. Returns a
+    dict mapping (business_label, entity_name) -> id."""
+    ids: dict[tuple[str, str], UUID] = {}
+
+    def _bootstrap(label: str):
+        bid = uuid4()
+        session.add(Business(id=bid, name=f"Iso Co {label}", phone=f"99900000{label}"))
+        session.flush()
+        user_id = uuid4()
+        session.add(User(id=user_id, business_id=bid, name=f"Owner {label}",
+                         email=f"owner-{bid}@test.local", role=UserRole.OWNER))
+        session.flush()
+        pipe_id = uuid4()
+        session.add(Pipeline(id=pipe_id, business_id=bid, name="Default", is_default=True))
+        session.flush()
+        stage_id = uuid4()
+        session.add(PipelineStage(id=stage_id, pipeline_id=pipe_id, name="New",
+                                  position=1, color="#888"))
+        cust_id = uuid4()
+        session.add(Customer(id=cust_id, business_id=bid, name=f"Cust {label}",
+                             phone=f"+91 9999900{label}", phone_normalized=f"91999990{label}"))
+        session.flush()
+        lead_id = uuid4()
+        session.add(Lead(id=lead_id, business_id=bid, customer_id=cust_id, stage_id=stage_id,
+                         title=f"Lead {label}", source=LeadSource.WHATSAPP))
+        session.flush()
+        invoice_id = uuid4()
+        session.add(Invoice(
+            id=invoice_id, business_id=bid, lead_id=lead_id, status=InvoiceStatus.APPROVED,
+            issued_date=_TODAY, due_date=_TODAY,
+            subtotal=_d(1000), tax_total=_d(0), total_amount=_d(1000),
+            invoice_number=f"INV-{label}",
+        ))
+        session.flush()
+
+        # Direct entities
+        pay_id = uuid4()
+        session.add(Payment(id=pay_id, business_id=bid, invoice_id=invoice_id,
+                            amount=_d(500), payment_method=PaymentMethod.CASH,
+                            payment_date=_TODAY))
+        cat_id = uuid4()
+        session.add(CatalogItem(id=cat_id, business_id=bid, name=f"Item {label}",
+                                unit=CatalogItemUnit.PIECE,
+                                default_rate=_d(100), gst_percent=_d(18)))
+        # users — the owner row we already inserted is the one we'll look for.
+        session.flush()
+
+        # ViaParent entities (no business_id columns)
+        fu_id = uuid4()
+        session.add(LeadFollowup(
+            id=fu_id, lead_id=lead_id, scheduled_at=_NOW,
+            note=f"FU {label}", status="pending", created_by=user_id,
+        ))
+        act_id = uuid4()
+        session.add(LeadActivity(
+            id=act_id, lead_id=lead_id, type=LeadActivityType.NOTE,
+            description=f"Activity {label}", created_by=user_id,
+        ))
+        item_id = uuid4()
+        session.add(InvoiceItem(
+            id=item_id, invoice_id=invoice_id, name=f"Line {label}",
+            description=f"Line {label}", unit="piece",
+            quantity=_d(1), unit_price=_d(1000), gst_percent=_d(0),
+            amount=_d(1000), sac_code=None,
+        ))
+        adj_id = uuid4()
+        session.add(InvoiceAdjustment(
+            id=adj_id, invoice_id=invoice_id, amount=_d(50),
+            adjustment_type=InvoiceAdjustmentType.DISCOUNT.value,
+            reason=f"Adj {label}", created_by=user_id,
+        ))
+        session.flush()
+
+        ids[(label, "payments")] = pay_id
+        ids[(label, "catalog_items")] = cat_id
+        ids[(label, "users")] = user_id
+        ids[(label, "lead_followups")] = fu_id
+        ids[(label, "lead_activities")] = act_id
+        ids[(label, "invoice_items")] = item_id
+        ids[(label, "invoice_adjustments")] = adj_id
+        ids[(label, "business")] = bid
+        return bid
+
+    bid_a = _bootstrap("A")
+    bid_b = _bootstrap("B")
+    return bid_a, bid_b, ids
+
+
+def _assert_isolated(session, *, entity: str, bid_a: UUID, bid_b: UUID,
+                     id_a: UUID, id_b: UUID, now=None):
+    """Read `entity` as B; assert exactly id_b, zero leak of id_a. Then
+    symmetric: as A, assert exactly id_a, zero leak of id_b."""
+    cq_b = compile_query(ReadQuery(entity), business_id=bid_b, now=now or _NOW)
+    ids_b = {UUID(r["id"]) for r in execute_query(cq_b, session).rows}
+    leaked_to_b = ids_b & {id_a}
+    assert leaked_to_b == set(), (
+        f"TENANT LEAK on {entity}: business B's read returned A's row(s): {leaked_to_b}"
+    )
+    assert id_b in ids_b, f"{entity}: business B did not see its own row {id_b}; saw {ids_b}"
+
+    cq_a = compile_query(ReadQuery(entity), business_id=bid_a, now=now or _NOW)
+    ids_a = {UUID(r["id"]) for r in execute_query(cq_a, session).rows}
+    leaked_to_a = ids_a & {id_b}
+    assert leaked_to_a == set(), (
+        f"TENANT LEAK on {entity} (reverse): business A's read returned B's row(s): {leaked_to_a}"
+    )
+    assert id_a in ids_a, f"{entity}: business A did not see its own row {id_a}; saw {ids_a}"
+
+
+def test_pg_payments_isolation_and_correctness():
+    with Session(engine) as session:
+        try:
+            bid_a, bid_b, ids = _seed_two_business_batch1_fixtures(session)
+            _assert_isolated(session, entity="payments",
+                             bid_a=bid_a, bid_b=bid_b,
+                             id_a=ids[("A", "payments")], id_b=ids[("B", "payments")])
+        finally:
+            session.rollback()
+
+
+def test_pg_catalog_items_isolation_and_correctness():
+    with Session(engine) as session:
+        try:
+            bid_a, bid_b, ids = _seed_two_business_batch1_fixtures(session)
+            _assert_isolated(session, entity="catalog_items",
+                             bid_a=bid_a, bid_b=bid_b,
+                             id_a=ids[("A", "catalog_items")], id_b=ids[("B", "catalog_items")])
+        finally:
+            session.rollback()
+
+
+def test_pg_users_isolation_and_correctness():
+    with Session(engine) as session:
+        try:
+            bid_a, bid_b, ids = _seed_two_business_batch1_fixtures(session)
+            _assert_isolated(session, entity="users",
+                             bid_a=bid_a, bid_b=bid_b,
+                             id_a=ids[("A", "users")], id_b=ids[("B", "users")])
+        finally:
+            session.rollback()
+
+
+def test_pg_lead_followups_isolation_and_correctness():
+    """ViaParent("leads", "lead_id", ...) — wrong parent_table or local_key
+    would leak follow-ups across tenants. Headline assertion: zero leak."""
+    with Session(engine) as session:
+        try:
+            bid_a, bid_b, ids = _seed_two_business_batch1_fixtures(session)
+            _assert_isolated(session, entity="lead_followups",
+                             bid_a=bid_a, bid_b=bid_b,
+                             id_a=ids[("A", "lead_followups")],
+                             id_b=ids[("B", "lead_followups")])
+        finally:
+            session.rollback()
+
+
+def test_pg_lead_activities_isolation_and_correctness():
+    """ViaParent("leads", "lead_id", ...)."""
+    with Session(engine) as session:
+        try:
+            bid_a, bid_b, ids = _seed_two_business_batch1_fixtures(session)
+            _assert_isolated(session, entity="lead_activities",
+                             bid_a=bid_a, bid_b=bid_b,
+                             id_a=ids[("A", "lead_activities")],
+                             id_b=ids[("B", "lead_activities")])
+        finally:
+            session.rollback()
+
+
+def test_pg_invoice_items_isolation_and_correctness():
+    """ViaParent("invoices", "invoice_id", ...)."""
+    with Session(engine) as session:
+        try:
+            bid_a, bid_b, ids = _seed_two_business_batch1_fixtures(session)
+            _assert_isolated(session, entity="invoice_items",
+                             bid_a=bid_a, bid_b=bid_b,
+                             id_a=ids[("A", "invoice_items")],
+                             id_b=ids[("B", "invoice_items")])
+        finally:
+            session.rollback()
+
+
+def test_pg_invoice_adjustments_isolation_and_correctness():
+    """ViaParent("invoices", "invoice_id", ...)."""
+    with Session(engine) as session:
+        try:
+            bid_a, bid_b, ids = _seed_two_business_batch1_fixtures(session)
+            _assert_isolated(session, entity="invoice_adjustments",
+                             bid_a=bid_a, bid_b=bid_b,
+                             id_a=ids[("A", "invoice_adjustments")],
+                             id_b=ids[("B", "invoice_adjustments")])
+        finally:
+            session.rollback()
+
+
+def test_pg_lead_followups_two_hop_customer_one_query():
+    """The original failing chat question — 'all pending follow-ups with the
+    lead name and customer in tabular format' — must answer in a SINGLE read,
+    not 8 turns of per-id fan-out. Two-hop customer join is what makes that
+    possible. Also asserts isolation: B's row never appears in A's response."""
+    with Session(engine) as session:
+        try:
+            bid_a, _bid_b, ids = _seed_two_business_batch1_fixtures(session)
+            cq = compile_query(
+                ReadQuery(
+                    "lead_followups",
+                    filters=[Filter("status", "=", "pending")],
+                    select=["id", "scheduled_at", "note",
+                            "lead_title", "customer_name", "customer_phone"],
+                ),
+                business_id=bid_a, now=_NOW,
+            )
+            result = execute_query(cq, session)
+            assert result.fields == (
+                "id", "scheduled_at", "note",
+                "lead_title", "customer_name", "customer_phone",
+            )
+            rows = result.rows
+            assert len(rows) == 1, rows
+            row = rows[0]
+            assert UUID(row["id"]) == ids[("A", "lead_followups")]
+            assert row["lead_title"] == "Lead A"
+            assert row["customer_name"] == "Cust A"
+            assert row["customer_phone"] == "+91 9999900A"
+            # Isolation: B's follow-up id never appears in A's response.
+            assert UUID(row["id"]) != ids[("B", "lead_followups")]
+        finally:
+            session.rollback()
+
+
+def test_pg_lead_activities_two_hop_customer_one_query():
+    """Parallel test for lead_activities — same two-hop, same isolation."""
+    with Session(engine) as session:
+        try:
+            bid_a, _bid_b, ids = _seed_two_business_batch1_fixtures(session)
+            cq = compile_query(
+                ReadQuery(
+                    "lead_activities",
+                    select=["id", "type", "description",
+                            "lead_title", "customer_name"],
+                ),
+                business_id=bid_a, now=_NOW,
+            )
+            rows = execute_query(cq, session).rows
+            assert len(rows) == 1, rows
+            row = rows[0]
+            assert UUID(row["id"]) == ids[("A", "lead_activities")]
+            assert row["lead_title"] == "Lead A"
+            assert row["customer_name"] == "Cust A"
+        finally:
+            session.rollback()
+
+
+def test_pg_followup_is_overdue_virtual_uses_clock():
+    """Smoke-test the new lead_followups.is_overdue virtual against a real
+    row: with now = scheduled_at + 1h, the pending follow-up is overdue."""
+    with Session(engine) as session:
+        try:
+            _bid_a, bid_b, ids = _seed_two_business_batch1_fixtures(session)
+            cq = compile_query(
+                ReadQuery("lead_followups",
+                          select=["id", "is_overdue", "is_completed"]),
+                business_id=bid_b,
+                now=_NOW + timedelta(hours=1),   # 1h past the seeded scheduled_at
+            )
+            rows = {UUID(r["id"]): r for r in execute_query(cq, session).rows}
+            fu = rows[ids[("B", "lead_followups")]]
+            assert fu["is_overdue"] is True, fu
+            assert fu["is_completed"] is False, fu
+        finally:
+            session.rollback()
+
+
+def test_pg_payment_is_voided_virtual():
+    """payments.is_voided is True iff voided_at IS NOT NULL."""
+    with Session(engine) as session:
+        try:
+            _bid_a, bid_b, ids = _seed_two_business_batch1_fixtures(session)
+            # Void B's payment to flip the virtual.
+            pay_b = session.get(Payment, ids[("B", "payments")])
+            pay_b.voided_at = _NOW
+            session.flush()
+            cq = compile_query(
+                ReadQuery("payments", select=["id", "is_voided"]),
+                business_id=bid_b, now=_NOW,
+            )
+            rows = {UUID(r["id"]): r for r in execute_query(cq, session).rows}
+            assert rows[ids[("B", "payments")]]["is_voided"] is True
         finally:
             session.rollback()
 

@@ -20,7 +20,8 @@ from app.models.enums import (
 from app.models.whatsapp_message import WhatsAppMessage
 from app.models.whatsapp_message_event import WhatsAppMessageEvent
 from app.models.lead import LeadActivity
-from app.models.enums import LeadActivityType
+from app.core.actor_context import set_actor_context
+from app.models.enums import ActorType, LeadActivityType
 from app.repositories.lead_repository import create_lead_activity
 from app.repositories.user_repository import get_one_user_for_business
 from app.repositories.whatsapp_message_event_repository import create_whatsapp_message_event
@@ -217,18 +218,23 @@ def _create_incoming_lead_activity(
     lead_id: UUID,
     content: str,
 ) -> None:
-    """Create LeadActivity for incoming message when conversation is linked to a lead."""
-    user = get_one_user_for_business(session, business_id)
-    if not user:
-        return  # TODO: optional system user for webhook-created activities
+    """Create LeadActivity for incoming message when conversation is linked
+    to a lead. The actor is SYSTEM (webhook, no real user); created_by is
+    NULL — this was previously misattributed to the first user in the
+    business (see TODO removed below). 0042 made created_by nullable
+    precisely so this can be honest now."""
     desc = f"WhatsApp incoming: {content[:200]}{'...' if len(content) > 200 else ''}"
     activity = LeadActivity(
         lead_id=lead_id,
         type=LeadActivityType.WHATSAPP,
         description=desc,
-        created_by=user.id,
+        created_by=None,           # webhook — no real user
+        # actor_type stamped by the chokepoint from the SYSTEM context bound
+        # in the webhook router. Payload stays NULL for WHATSAPP — the
+        # message content already lives in description.
     )
-    create_lead_activity(session, activity)
+    with set_actor_context(ActorType.SYSTEM):
+        create_lead_activity(session, activity)
 
 
 def _map_message_type(msg_type: str) -> WhatsAppMessageType:

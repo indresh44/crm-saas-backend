@@ -1,10 +1,11 @@
 from datetime import date, datetime, time, timedelta, timezone
-from typing import List
+from typing import Any, List
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
+from app.core.json_safe import safe_jsonify
 from app.core.time_utils import day_bounds_utc, format_local, today_in
 from app.models.enums import LeadActivityType
 from app.models.lead import Lead, LeadActivity
@@ -116,6 +117,11 @@ def create_followup(
         description=f"Follow-up scheduled for {format_local(result.scheduled_at, tz)}"
                    + (f" — {result.note}" if result.note else ""),
         created_by=current_user.id,
+        payload=safe_jsonify({
+            "followup_id": result.id,
+            "scheduled_at": result.scheduled_at,
+            "note": result.note,
+        }),
     ))
     return result
 
@@ -227,6 +233,10 @@ def mark_followup_done(
         type=LeadActivityType.FOLLOWUP_COMPLETED,
         description="Follow-up marked as done" + (f" — {result.note}" if result.note else ""),
         created_by=current_user.id,
+        payload=safe_jsonify({
+            "followup_id": result.id,
+            "note": result.note,
+        }),
     ))
     return result
 
@@ -258,16 +268,24 @@ def update_followup(
 
     activity_type = None
     desc = ""
+    activity_payload: dict[str, Any] | None = None
     if data.status == "done" and old_status != "done":
         activity_type = LeadActivityType.FOLLOWUP_COMPLETED
         desc = "Follow-up marked as done" + (f" — {result.note}" if result.note else "")
+        activity_payload = {"followup_id": result.id, "note": result.note}
     elif data.status == "cancelled" and old_status != "cancelled":
         activity_type = LeadActivityType.FOLLOWUP_CANCELLED
         desc = "Follow-up cancelled" + (f" — {result.note}" if result.note else "")
+        activity_payload = {"followup_id": result.id, "note": result.note}
     elif data.scheduled_at is not None and data.scheduled_at != old_scheduled_at:
         activity_type = LeadActivityType.FOLLOWUP_RESCHEDULED
         tz = _business_timezone(session, current_user.business_id)
         desc = f"Follow-up rescheduled to {format_local(result.scheduled_at, tz)}" + (f" — {result.note}" if result.note else "")
+        activity_payload = {
+            "followup_id": result.id,
+            "old_scheduled_at": old_scheduled_at,
+            "new_scheduled_at": result.scheduled_at,
+        }
 
     if activity_type:
         create_lead_activity(session, LeadActivity(
@@ -275,6 +293,7 @@ def update_followup(
             type=activity_type,
             description=desc,
             created_by=current_user.id,
+            payload=safe_jsonify(activity_payload) if activity_payload else None,
         ))
 
     return result

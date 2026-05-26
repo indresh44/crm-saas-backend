@@ -68,6 +68,12 @@ class SessionDetailResponse(BaseModel):
     id: UUID
     title: Optional[str]
     awaiting_action_id: Optional[str]
+    # NEW: authoritative gate for the chat input. True iff this session has
+    # at least one task in awaiting_approval with pending_action_id NOT
+    # NULL (a real prepared write). Replaces awaiting_action_id (which is
+    # deprecated since the per-task model — a session can have multiple
+    # awaiting tasks at once). Frontend uses this, not awaiting_action_id.
+    has_unresolved_action: bool = False
     updated_at: str
     messages: list[MessageRow]
 
@@ -94,7 +100,9 @@ class AssistantEnvelopeResponse(BaseModel):
     turn_detail: list[dict[str, Any]]
     tokens: Optional[dict[str, Any]]
     created_at: str
-    awaiting_action_id: Optional[str]
+    awaiting_action_id: Optional[str]   # deprecated for new flow; always None
+    batch_id: Optional[str] = None       # set on /message and /confirm + /cancel
+    task_id: Optional[str] = None        # set on /confirm + /cancel
 
 
 # ---------------------------------------------------------------------------
@@ -139,12 +147,15 @@ def get_session_detail(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> SessionDetailResponse:
-    row, messages = agent_chat_service.get_session_with_messages(
-        session, current_user, session_id,
+    row, messages, has_unresolved_action = (
+        agent_chat_service.get_session_with_messages(
+            session, current_user, session_id,
+        )
     )
     return SessionDetailResponse(
         id=row.id, title=row.title,
         awaiting_action_id=row.awaiting_action_id,
+        has_unresolved_action=has_unresolved_action,
         updated_at=row.updated_at.isoformat(),
         messages=[
             MessageRow(
@@ -192,17 +203,57 @@ async def send_message(
 
 
 @router.post("/sessions/{session_id}/confirm", response_model=AssistantEnvelopeResponse)
-def confirm(
+async def confirm(
     session_id: UUID,
     payload: ConfirmRequest,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> AssistantEnvelopeResponse:
-    env = agent_chat_service.handle_confirm(
-        session, current_user,
-        session_id=session_id,
-        prepared_action_id=payload.prepared_action_id,
-        edits=payload.edits or {},
+    # `confirm` is async because the post-commit resume re-invokes run_agent,
+    # which may need to make further LLM calls (e.g. nested prepare or a
+    # follow-up read before reaching done).
+    try:
+        env = await agent_chat_service.handle_confirm(
+            session, current_user,
+            session_id=session_id,
+            prepared_action_id=payload.prepared_action_id,
+            edits=payload.edits or {},
+        )
+    except LLMTimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="AI assistant is taking too long, please try again",
+        ) from exc
+    except LLMRateLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests, please wait a moment",
+        ) from exc
+    except LLMError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI assistant error: {exc}",
+        ) from exc
+    return AssistantEnvelopeResponse(**env.to_dict())
+
+
+@router.post(
+    "/sessions/{session_id}/tasks/{task_id}/dismiss",
+    response_model=AssistantEnvelopeResponse,
+)
+def dismiss_task(
+    session_id: UUID,
+    task_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> AssistantEnvelopeResponse:
+    """Dismiss a stuck ask_user task — the escape hatch for the
+    needs_input bucket on the dashboard. Generic endpoint name; the
+    service body refuses anything other than an ask_user task (so it
+    can't become a backdoor for skipping a prepared write's
+    confirm/cancel)."""
+    env = agent_chat_service.handle_dismiss_task(
+        session, current_user, session_id=session_id, task_id=task_id,
     )
     return AssistantEnvelopeResponse(**env.to_dict())
 

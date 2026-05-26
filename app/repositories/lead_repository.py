@@ -86,6 +86,36 @@ def get_pipeline_stage_by_id(
 
 
 def create_lead_activity(session: Session, activity: LeadActivity) -> LeadActivity:
+    """The ONE chokepoint that mints LeadActivity rows.
+
+    Stamps the diary fields (actor_type, chat_session_id, task_id) from the
+    ambient `ActorContext` so callers don't have to thread them through every
+    service signature. If a caller has already set these fields on the
+    activity object (rare — only for tests or migrations that set explicit
+    values), the caller's values win.
+
+    Note for new emit sites added in batches after 0042: always set `payload`
+    on the activity object yourself before calling this helper — the
+    chokepoint does NOT synthesise payload (it can't; only the caller knows
+    the event's facts). The source-grep test in
+    `tests/test_lead_activity_emits_pg.py` enforces that every emit site for
+    a SYSTEM-typed event sets payload."""
+    # Local import to avoid a circular import at module load time
+    # (actor_context imports nothing from app.models, but lead_repository is
+    # imported very early in service modules; deferring keeps the import
+    # graph clean).
+    from app.core.actor_context import current_actor, warn_if_default_on_write
+
+    warn_if_default_on_write()
+    ctx = current_actor()
+
+    if activity.actor_type is None:
+        activity.actor_type = ctx.actor_type
+    if activity.chat_session_id is None:
+        activity.chat_session_id = ctx.chat_session_id
+    if activity.task_id is None:
+        activity.task_id = ctx.task_id
+
     session.add(activity)
     session.commit()
     session.refresh(activity)

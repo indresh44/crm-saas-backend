@@ -151,11 +151,25 @@ def test_normal_read_still_parses():
     assert rq.limit == 25
 
 
-def test_top_level_extra_key_silently_ignored():
-    """Benign top-level extras (e.g. 'kind') don't break parsing — strict
-    validation lives on the sub-dicts where mistakes actually bite."""
-    rq = parse_read_query({"entity": "leads", "kind": "read"})
-    assert rq.entity == "leads"
+def test_top_level_extra_key_rejected_with_teaching_error():
+    """CONTRACT FLIP (was test_top_level_extra_key_silently_ignored):
+
+    Top-level lenience caused a silent dataset leak — the LLM emitted
+    `where: {…}` instead of `filters: [...]`, the unknown `where` was
+    silently dropped, and the resulting query had ZERO filters and
+    returned the entire table. The fix made top-level strict; this test
+    documents the new behaviour and the bug-A history is in the comment
+    on _TOP_LEVEL_KEYS in app/agent/parsing.py."""
+    try:
+        parse_read_query({"entity": "leads", "kind": "read"})
+    except ReadQueryParseError as exc:
+        assert exc.code == "unknown_key"
+        assert "'kind'" in exc.message
+        # The error must list the allowed keys so the LLM can self-correct.
+        for k in ("entity", "filters", "sort", "limit", "select"):
+            assert k in exc.message, f"allowed key {k!r} missing from teaching error: {exc.message}"
+    else:
+        raise AssertionError("expected ReadQueryParseError(unknown_key)")
 
 
 # ---------------------------------------------------------------------------

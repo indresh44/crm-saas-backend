@@ -24,6 +24,7 @@ from app.repositories.invoice_repository import (
     update_invoice as repo_update_invoice,
 )
 from app.models.lead import LeadActivity
+from app.core.json_safe import safe_jsonify
 from app.repositories.lead_repository import create_lead_activity, get_lead_by_id
 from app.repositories.payment_repository import list_payments_for_invoice
 from app.services.line_item_calculator import calculate_totals
@@ -189,6 +190,11 @@ def create_invoice(
             type=LeadActivityType.INVOICE_CREATED,
             description=f"Invoice {invoice.invoice_number} created (₹{invoice.total_amount:,.2f})",
             created_by=current_user.id,
+            payload=safe_jsonify({
+                "invoice_id": invoice.id,
+                "invoice_number": invoice.invoice_number,
+                "total": invoice.total_amount,
+            }),
         ))
 
     return invoice
@@ -269,6 +275,9 @@ def update_invoice(
         update_data["tax_total"] = totals["tax_total"]
         update_data["total_amount"] = totals["total_amount"]
 
+    # Capture the PRE-mutation status so the diary emit below can compare.
+    prior_status = invoice.status
+
     for field, value in update_data.items():
         setattr(invoice, field, value)
 
@@ -285,13 +294,38 @@ def update_invoice(
         session.refresh(invoice)
         clear_invoice_pdf(session, invoice)
 
-    if requested_status == InvoiceStatus.APPROVED and invoice.lead_id is not None:
-        create_lead_activity(session, LeadActivity(
-            lead_id=invoice.lead_id,
-            type=LeadActivityType.INVOICE_APPROVED,
-            description=f"Invoice {invoice.invoice_number} approved",
-            created_by=current_user.id,
-        ))
+    # Diary emits for the two owner-meaningful status transitions:
+    #   * DRAFT → SENT: the moment the customer was first shown the estimate.
+    #   * → APPROVED: the customer said yes; ready to collect.
+    # Other transitions (PARTIAL/PAID auto-recompute from payments, item
+    # edits while DRAFT) are deliberately silent — the survey called them
+    # noise; the underlying payment activities already tell the money story.
+    if invoice.lead_id is not None:
+        if (
+            requested_status == InvoiceStatus.SENT
+            and prior_status == InvoiceStatus.DRAFT
+        ):
+            create_lead_activity(session, LeadActivity(
+                lead_id=invoice.lead_id,
+                type=LeadActivityType.INVOICE_SENT,
+                description=f"Invoice {invoice.invoice_number} sent to customer",
+                created_by=current_user.id,
+                payload=safe_jsonify({
+                    "invoice_id": invoice.id,
+                    "invoice_number": invoice.invoice_number,
+                }),
+            ))
+        if requested_status == InvoiceStatus.APPROVED:
+            create_lead_activity(session, LeadActivity(
+                lead_id=invoice.lead_id,
+                type=LeadActivityType.INVOICE_APPROVED,
+                description=f"Invoice {invoice.invoice_number} approved",
+                created_by=current_user.id,
+                payload=safe_jsonify({
+                    "invoice_id": invoice.id,
+                    "invoice_number": invoice.invoice_number,
+                }),
+            ))
 
     return invoice
 
@@ -587,6 +621,27 @@ def cancel_invoice(
     invoice = repo_update_invoice(session, invoice)
 
     clear_invoice_pdf(session, invoice)
+
+    # Diary event. The reason is ALSO stored on invoice.cancelled_reason
+    # (kept there for the legacy public-share cancellation banner) — the
+    # diary payload duplicates it intentionally so a single read of the
+    # activity log carries the full story without joining back to invoices.
+    if invoice.lead_id is not None:
+        create_lead_activity(session, LeadActivity(
+            lead_id=invoice.lead_id,
+            type=LeadActivityType.INVOICE_CANCELLED,
+            description=(
+                f"Invoice {invoice.invoice_number} cancelled"
+                + (f" — {cleaned_reason}" if cleaned_reason else "")
+            ),
+            created_by=current_user.id,
+            payload=safe_jsonify({
+                "invoice_id": invoice.id,
+                "invoice_number": invoice.invoice_number,
+                "reason": cleaned_reason,
+            }),
+        ))
+
     return invoice
 
 

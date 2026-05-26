@@ -51,7 +51,7 @@ from app.repositories.user_repository import get_user_by_id
 #              from app.core.security import create_access_token; from app.models.user import User; \
 #              s=Session(engine); u=s.exec(select(User).where(User.email=='vikram@vikraminteriors.demo')).first(); \
 #              print(create_access_token(u.id,u.business_id,u.role.value))"
-TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMTAwMDBkZi0yYmUzLTRhZjktODJkOC1mMjc3ZTNlMDdkMGIiLCJidXNpbmVzc19pZCI6ImEzODM4MDZhLWQyMjktNDhmOC05NWJmLTk3NDQ0YWZhNDkxMSIsInJvbGUiOiJvd25lciIsImlhdCI6MTc3OTU1NzI3MSwiZXhwIjoxNzc5NTU4MTcxLCJ0eXBlIjoiYWNjZXNzIn0.E8K_Y22KGO2HrNJcdED1FtiZ93WstSqLu9Zkmuep5V8"
+TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwMTAwMDBkZi0yYmUzLTRhZjktODJkOC1mMjc3ZTNlMDdkMGIiLCJidXNpbmVzc19pZCI6ImEzODM4MDZhLWQyMjktNDhmOC05NWJmLTk3NDQ0YWZhNDkxMSIsInJvbGUiOiJvd25lciIsImlhdCI6MTc3OTU2OTA3MSwiZXhwIjoxNzc5NTY5OTcxLCJ0eXBlIjoiYWNjZXNzIn0.4vfLBnxJAA4YiV8bFA0fm7tKPm3bDPDAHWAdsCL8-IM"
 
 # Optional: pre-filled first goal. Leave "" to be prompted on start.
 STARTING_GOAL = ""
@@ -116,6 +116,8 @@ def _print_agent_run(result: AgentRunResult) -> None:
     if result.kind == "done":
         print(result.answer)
     elif result.kind == "awaiting_confirm":
+        if result.answer:
+            print(f"answer:             {result.answer}")
         print(f"prepared_action_id: {result.prepared_action_id}")
         print(f"preview:            {result.preview}")
         print(f"editable fields:    {list(result.editable_fields)}")

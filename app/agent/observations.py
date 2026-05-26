@@ -16,10 +16,15 @@ UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
 
-#: How many rows we keep in observation_raw (for debug). Per the spec.
-READ_ROWS_FULL_CAP = 5
-#: How many rows we include in the LLM-visible summary. Per the spec.
-READ_ROWS_SUMMARY_CAP = 3
+#: How many rows we keep in observation_raw — must stay >= SUMMARY_CAP so the
+#: UUID-provenance check can verify every UUID the LLM saw in its summary.
+READ_ROWS_FULL_CAP = 20
+#: How many rows we include in the LLM-visible summary. Raised from 3 to 20
+#: so tabular questions ("show me all pending follow-ups") can be answered in
+#: ONE turn instead of forcing the LLM into scheduled_at-cursor pagination
+#: it cannot reliably converge. The compiler's HARD_ROW_CAP (50) still bounds
+#: the underlying query.
+READ_ROWS_SUMMARY_CAP = 20
 #: Per-field string truncation in the summary.
 _FIELD_VALUE_CAP = 80
 

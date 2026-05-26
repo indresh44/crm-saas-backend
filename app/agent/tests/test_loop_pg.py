@@ -231,17 +231,21 @@ def test_loop_bad_action_json_retry_succeeds():
 # ===========================================================================
 
 def test_read_more_than_cap_summary_says_so():
+    """The 'showing N — narrow' suffix fires only when SQL returns more than
+    the summary cap. With DEFAULT_LIMIT == SUMMARY_CAP, that means the
+    request must explicitly ask for limit > SUMMARY_CAP. Seed 25 customers
+    and request limit=50 so SQL returns 25 and the suffix fires."""
     with _rollback_session() as s:
-        f = _seed(s, uuid4(), extra_rajeshes=4)   # 1 + 4 = 5 customers
+        f = _seed(s, uuid4(), extra_rajeshes=24)   # 1 baseline + 24 = 25
         llm = _FakeLLM(
             {"thought": "list customers",
-             "action": {"type": "read", "query": {"entity": "customers"}}},
+             "action": {"type": "read",
+                        "query": {"entity": "customers", "limit": 50}}},
             {"thought": "stop", "action": {"type": "done", "answer": "done"}},
         )
         out = _run(run_agent(s, f.user, "show customers", llm=llm))
         summary = out.history[0].observation_summary
-        # 5 rows matched, summary caps at 3 and says so.
-        assert "5 row(s) matched" in summary
+        assert "25 row(s) matched" in summary
         assert f"showing {READ_ROWS_SUMMARY_CAP}" in summary
         assert "narrow the filter" in summary
 

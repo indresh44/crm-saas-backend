@@ -205,6 +205,27 @@ def _build_has_overdue_followup(ctx: ResolverContext):
     )
 
 
+# --- Batch 1 virtuals --------------------------------------------------------
+
+def _build_payment_is_voided(ctx: ResolverContext):
+    """A payment is voided iff ``voided_at IS NOT NULL``. Boolean. No clock
+    needed; void state is a stored flag, not a time-relative computation."""
+    return Payment.voided_at.is_not(None)
+
+
+def _build_followup_is_overdue(ctx: ResolverContext):
+    """A follow-up is overdue iff ``status = 'pending' AND scheduled_at < now``.
+    Time-relative (needs the injected business-local clock). Distinct from the
+    leads-side ``has_overdue_followup`` virtual: this is a per-row flag on the
+    follow-up itself."""
+    return and_(LeadFollowup.status == "pending", LeadFollowup.scheduled_at < ctx.now)
+
+
+def _build_followup_is_completed(ctx: ResolverContext):
+    """A follow-up is completed iff ``status = 'done'``. Pure status check."""
+    return LeadFollowup.status == "done"
+
+
 # ---------------------------------------------------------------------------
 # Registry: (entity, field name) -> resolver
 # ---------------------------------------------------------------------------
@@ -222,6 +243,11 @@ VIRTUAL_RESOLVERS: dict[tuple[str, str], VirtualResolver] = {
     ("leads", "is_terminal"): VirtualResolver(("pipeline_stage",), False, _build_is_terminal),
     ("leads", "is_active"): VirtualResolver(("pipeline_stage",), False, _build_is_active),
     ("leads", "has_overdue_followup"): VirtualResolver((), True, _build_has_overdue_followup),
+    # Batch 1 — Direct entity virtuals
+    ("payments", "is_voided"): VirtualResolver((), False, _build_payment_is_voided),
+    # Batch 1 — ViaParent entity virtuals
+    ("lead_followups", "is_overdue"): VirtualResolver((), True, _build_followup_is_overdue),
+    ("lead_followups", "is_completed"): VirtualResolver((), False, _build_followup_is_completed),
 }
 
 

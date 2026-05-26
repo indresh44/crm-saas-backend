@@ -55,9 +55,28 @@ _SORT_ALIASES: dict[str, str] = {}
 _AGG_KEYS = ("func", "field")
 _AGG_ALIASES = {"function": "func"}      # symmetric with operator->op
 
-# Top-level keys are validated softly: unknown keys are silently ignored so
-# benign extras (e.g. a stray "kind":"read" the LLM tacks on) don't break the
-# parse. Strict validation lives on the sub-dicts where mistakes actually bite.
+# Top-level keys MUST be in this whitelist. The previous policy of silently
+# ignoring unknown top-level keys was a source of catastrophic silent
+# failures: the LLM would emit `where: {field: {op: value}}` (the natural
+# guess from training data) instead of the canonical `filters: [...]`, the
+# unknown `where` was silently dropped, and the resulting ReadQuery had no
+# WHERE clause — returning the ENTIRE TABLE instead of the filtered subset.
+# A teaching error here costs one extra turn; the silent failure leaked
+# whole datasets into the LLM's context.
+#
+# Top-level aliases let the LLM use the natural English variants ("where"
+# for "filters", "order_by" for "sort") and have them silently renamed.
+# Any key that's neither canonical nor a recognised alias raises.
+_TOP_LEVEL_KEYS = (
+    "entity", "filters", "sort", "limit", "select",
+    "aggregations", "group_by",
+)
+_TOP_LEVEL_ALIASES = {
+    "where": "filters",       # what every LLM guesses first
+    "order_by": "sort",
+    "orderby": "sort",
+    "group": "group_by",      # short form
+}
 
 
 def _apply_aliases(d: dict, aliases: dict[str, str]) -> dict:
@@ -133,11 +152,28 @@ def _field_index(entity: str) -> dict:
 
 def parse_read_query(d: dict) -> ReadQuery:
     """Parse a read-query JSON dict into a ReadQuery, normalizing aliases and
-    rejecting unknown keys with teaching errors."""
+    rejecting unknown keys with teaching errors.
+
+    Top-level strictness — the parser REJECTS any key that isn't in
+    _TOP_LEVEL_KEYS (after alias normalisation). Previously these were
+    silently ignored, which let the LLM's natural `where: {…}` guess sail
+    through with zero filters applied. See the comment on _TOP_LEVEL_KEYS
+    for the bug-A history."""
     if not isinstance(d, dict):
         raise ReadQueryParseError(
             "bad_query", f"read query must be a JSON object, got {type(d).__name__}.",
         )
+
+    # --- top-level: alias-normalise, then strict-validate ---
+    # IMPORTANT: alias normalisation includes "where" -> "filters". If a query
+    # arrives with BOTH "where" and "filters", the canonical "filters" wins
+    # and "where" is dropped (per _apply_aliases). The structural validation
+    # of the renamed key still has to pass below — if the LLM emitted
+    # `where: {field: {op: value}}` (a dict, not a list), the rename produces
+    # `filters: {…}` which then fails the "must be a list" check with a
+    # teaching error that names the right shape.
+    d = _apply_aliases(d, _TOP_LEVEL_ALIASES)
+    _check_keys(d, _TOP_LEVEL_KEYS, what="query", location="top-level")
 
     entity = d.get("entity")
     idx = _field_index(entity) if entity else {}
@@ -145,8 +181,16 @@ def parse_read_query(d: dict) -> ReadQuery:
     # --- filters ---
     raw_filters = d.get("filters") or []
     if not isinstance(raw_filters, list):
+        # Most common arrival path here: LLM emitted `where: {field: {op: value}}`
+        # which the alias rename turned into `filters: {…}` (a dict). The error
+        # must show the CORRECT shape verbatim so the loop's next turn can copy it.
         raise ReadQueryParseError(
-            "bad_filters", "'filters' must be a list of {field, op, value} objects.",
+            "bad_filters",
+            "'filters' must be a LIST of {field, op, value} objects, not a dict. "
+            "Example: \"filters\": [{\"field\": \"status\", \"op\": \"=\", "
+            "\"value\": \"pending\"}, {\"field\": \"scheduled_at\", "
+            "\"op\": \"between\", \"value\": [\"2026-05-25\", \"2026-05-25\"]}].",
+            {"got_type": type(raw_filters).__name__},
         )
     filters: list[Filter] = []
     for i, f in enumerate(raw_filters):

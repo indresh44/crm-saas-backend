@@ -34,22 +34,31 @@ from enum import Enum
 from typing import Any, Optional
 from uuid import UUID
 
-from sqlalchemy import func
+from sqlalchemy import exists, func, literal
 from sqlmodel import select
 
+from app.models.catalog_item import CatalogItem
 from app.models.customer import Customer
 from app.models.invoice import Invoice
-from app.models.lead import Lead
-from app.models.pipeline import PipelineStage
+from app.models.invoice_adjustment import InvoiceAdjustment
+from app.models.invoice_item import InvoiceItem
+from app.models.lead import Lead, LeadActivity
+from app.models.lead_followup import LeadFollowup
+from app.models.payment import Payment
+from app.models.pipeline import Pipeline, PipelineStage
+from app.models.user import User
 from app.read_model.schema import (
     DEFAULT_LIMIT,
     HARD_ROW_CAP,
+    Direct,
     EntityDef,
     FieldDef,
     JoinDef,
     Operator,
     FieldType,
     SCHEMA,
+    TenantScope,
+    ViaParent,
 )
 from app.read_model.virtual_fields import (
     VIRTUAL_RESOLVERS,
@@ -71,6 +80,31 @@ _ENTITY_MODELS: dict[str, type] = {
     "leads": Lead,
     "invoices": Invoice,
     "customers": Customer,   # Bound for layer-6 customer-resolution demo (added Step "Layer 6").
+    "pipeline_stages": PipelineStage,        # ViaParent("pipelines", ...)
+    # Batch 1 — Direct
+    "payments": Payment,
+    "catalog_items": CatalogItem,
+    "users": User,
+    # Batch 1 — ViaParent (parents must be registered in _TENANT_PARENT_MODELS)
+    "lead_followups": LeadFollowup,          # ViaParent("leads", ...)
+    "lead_activities": LeadActivity,         # ViaParent("leads", ...)
+    "invoice_items": InvoiceItem,            # ViaParent("invoices", ...)
+    "invoice_adjustments": InvoiceAdjustment,# ViaParent("invoices", ...)
+}
+
+#: Parent table -> model, for ViaParent tenant scoping. The parent need NOT be
+#: a queryable entity (e.g. ``pipelines`` is not in SCHEMA — it is an
+#: implementation detail of pipeline_stages). This registry exists so the
+#: compiler can resolve a ViaParent.parent_table string to an ORM class for
+#: building the EXISTS subquery.
+#:
+#: Every entry MUST be a Direct-tenanted model (has a real ``business_id``
+#: column). Validated by ``_validate_tenant_scopes`` at module import — a
+#: missing parent here would fail loudly at startup, not silently leak.
+_TENANT_PARENT_MODELS: dict[str, type] = {
+    "pipelines": Pipeline,
+    "leads": Lead,             # parent of lead_followups, lead_activities
+    "invoices": Invoice,       # parent of invoice_items, invoice_adjustments
 }
 
 #: (entity, join name) -> (final target SQLModel class, {exposed_field_name: target column attr}).
@@ -83,6 +117,19 @@ _JOIN_BINDINGS: dict[tuple[str, str], tuple[type, dict[str, str]]] = {
     # Two-hop: invoice -> lead -> customer. Column resolution targets Customer; the
     # intermediate leads hop is added by _apply_joins via _THROUGH_JOINS.
     ("invoices", "customer"): (Customer, {"customer_name": "name", "customer_phone": "phone"}),
+    # Batch 1 join bindings — minimal exposes per join, expand as needed.
+    ("payments", "invoice"): (Invoice, {"invoice_number": "invoice_number",
+                                         "invoice_status": "status"}),
+    ("lead_followups", "lead"): (Lead, {"lead_title": "title"}),
+    ("lead_activities", "lead"): (Lead, {"lead_title": "title"}),
+    ("invoice_adjustments", "invoice"): (Invoice, {"invoice_number": "invoice_number"}),
+    # Two-hop customer joins — mirror the existing invoices.customer pattern
+    # so tabular questions over follow-ups / activities can include the
+    # customer in ONE read instead of fanning out to N per-id lookups.
+    ("lead_followups", "customer"): (Customer, {"customer_name": "name",
+                                                 "customer_phone": "phone"}),
+    ("lead_activities", "customer"): (Customer, {"customer_name": "name",
+                                                  "customer_phone": "phone"}),
 }
 
 #: Multi-hop joins: (entity, join name) -> ordered [(target_model, ON-clause), ...].
@@ -93,6 +140,18 @@ _JOIN_BINDINGS: dict[tuple[str, str], tuple[type, dict[str, str]]] = {
 _THROUGH_JOINS: dict[tuple[str, str], list[tuple[type, Any]]] = {
     ("invoices", "customer"): [
         (Lead, Invoice.lead_id == Lead.id),
+        (Customer, Lead.customer_id == Customer.id),
+    ],
+    # Two-hop follow-up -> lead -> customer. The leads hop is shared with the
+    # entity's own `lead` join — _apply_joins de-duplicates by target model,
+    # so selecting both `lead_title` and `customer_name` produces ONE leads join.
+    ("lead_followups", "customer"): [
+        (Lead, LeadFollowup.lead_id == Lead.id),
+        (Customer, Lead.customer_id == Customer.id),
+    ],
+    # Same pattern for activities.
+    ("lead_activities", "customer"): [
+        (Lead, LeadActivity.lead_id == Lead.id),
         (Customer, Lead.customer_id == Customer.id),
     ],
 }
@@ -787,10 +846,143 @@ def _predicate(column, op: Operator, value: Any):
     raise AssertionError(f"unhandled operator {op!r}")  # unreachable: ops are validated
 
 
-def _apply_tenant_predicate(stmt, model: type, business_id: UUID):
-    """Enforcement 1: inject the tenant predicate. Factored so multi-hop joins can
-    reuse it on joined entities in a later step."""
-    return stmt.where(getattr(model, _TENANT_COLUMN) == business_id)
+def _apply_tenant_predicate(stmt, entity_def: EntityDef, model: type, business_id: UUID):
+    """Enforcement 1 — the security boundary. Inject the tenant predicate
+    against the entity's declared tenant_scope.
+
+    Direct:
+        WHERE <entity>.business_id = :tenant
+    ViaParent:
+        WHERE EXISTS (SELECT 1 FROM <parent>
+                      WHERE <parent>.id = <entity>.<local_key>
+                        AND <parent>.<parent_tenant_column> = :tenant)
+
+    The EXISTS subquery uses ``.correlate(model)`` deliberately. Without it,
+    SQLAlchemy can auto-include the outer entity's table in the subquery's
+    FROM-clause, producing a Cartesian product that ALWAYS returns true —
+    which silently disables tenant isolation with no error at compile time.
+    The PG isolation tests are the structural guard; ``.correlate(model)`` is
+    the why-it-can't-leak-in-the-first-place.
+    """
+    scope: TenantScope = entity_def.tenant_scope
+    if isinstance(scope, Direct):
+        return stmt.where(getattr(model, _TENANT_COLUMN) == business_id)
+    if isinstance(scope, ViaParent):
+        parent_model = _TENANT_PARENT_MODELS[scope.parent_table]   # presence asserted at startup
+        local_col = getattr(model, scope.local_key)
+        parent_id = getattr(parent_model, "id")
+        parent_tenant = getattr(parent_model, scope.parent_tenant_column)
+        # `select(literal(1))` makes the subquery's FROM-clause contain only
+        # the parent (no auto-included outer model). `.correlate(model)` binds
+        # the outer reference (`local_col`) against the outer entity, not any
+        # joined alias. Both choices defend the same property — keep both.
+        subq = (
+            select(literal(1))
+            .where(parent_id == local_col)
+            .where(parent_tenant == business_id)
+            .correlate(model)
+        )
+        return stmt.where(exists(subq))
+    raise AssertionError(f"unhandled tenant_scope type: {type(scope).__name__}")
+
+
+def _validate_tenant_scopes(
+    schema: dict[str, EntityDef],
+    entity_models: dict[str, type],
+    parent_models: dict[str, type],
+) -> None:
+    """Loud, eager validation of every entity's tenant_scope declaration.
+    Pure: takes the schema + binding registries as arguments so unit tests
+    can construct synthetic schemas without poking the module globals.
+
+    Anything ambiguous, hollow, or unresolvable raises here. A malformed
+    declaration MUST raise — silent fallback would be a tenant leak.
+
+    Catches:
+      - Direct entity not bound in entity_models.
+      - Direct entity whose model lacks the business_id column.
+      - ViaParent entity not bound in entity_models.
+      - ViaParent.parent_table not registered in parent_models.
+      - ViaParent parent model lacks business_id (hollow scoping — would
+        silently disable tenant isolation; the spec forbids multi-hop, so
+        the parent must itself be Direct).
+      - ViaParent.parent_table corresponds to another entity in `schema` that
+        is itself ViaParent (extra-clear error for the same hollow-scoping
+        mistake when both child and parent live in SCHEMA).
+      - ViaParent.local_key not a column on the entity's model.
+      - ViaParent.parent_tenant_column not a column on the parent model.
+    """
+    for name, edef in schema.items():
+        scope = edef.tenant_scope
+        if isinstance(scope, Direct):
+            model = entity_models.get(name)
+            if model is None:
+                raise ValueError(
+                    f"entity {name!r}: declared Direct but not bound in entity_models"
+                )
+            if not hasattr(model, _TENANT_COLUMN):
+                raise ValueError(
+                    f"entity {name!r}: Direct tenant scope but model "
+                    f"{model.__name__} has no {_TENANT_COLUMN!r} column"
+                )
+            continue
+
+        if isinstance(scope, ViaParent):
+            model = entity_models.get(name)
+            if model is None:
+                raise ValueError(
+                    f"entity {name!r}: declared ViaParent but not bound in entity_models"
+                )
+            parent_model = parent_models.get(scope.parent_table)
+            if parent_model is None:
+                raise ValueError(
+                    f"entity {name!r}: ViaParent.parent_table={scope.parent_table!r} "
+                    f"is not registered in parent_models. Add the parent model "
+                    f"to the parent-table binding before declaring this entity."
+                )
+            if not hasattr(parent_model, _TENANT_COLUMN):
+                raise ValueError(
+                    f"entity {name!r}: ViaParent parent {scope.parent_table!r} "
+                    f"({parent_model.__name__}) has no {_TENANT_COLUMN!r} column. "
+                    f"Parents must be Direct-tenanted. Multi-hop tenant scoping "
+                    f"is not supported."
+                )
+            # Extra-clear error when the parent is itself a ViaParent ENTITY
+            # in the schema (the hasattr check above also catches this, but
+            # this branch names the offending entity directly).
+            for other_name, other_edef in schema.items():
+                if (other_edef.table == scope.parent_table
+                        and isinstance(other_edef.tenant_scope, ViaParent)):
+                    raise ValueError(
+                        f"entity {name!r}: ViaParent.parent_table="
+                        f"{scope.parent_table!r} is itself ViaParent (declared "
+                        f"in schema as {other_name!r}). Multi-hop tenant scoping "
+                        f"is not supported — declare only one hop."
+                    )
+            if not hasattr(model, scope.local_key):
+                raise ValueError(
+                    f"entity {name!r}: ViaParent.local_key={scope.local_key!r} "
+                    f"is not a column on {model.__name__}"
+                )
+            if not hasattr(parent_model, scope.parent_tenant_column):
+                raise ValueError(
+                    f"entity {name!r}: ViaParent.parent_tenant_column="
+                    f"{scope.parent_tenant_column!r} is not a column on "
+                    f"{parent_model.__name__}"
+                )
+            continue
+
+        raise ValueError(
+            f"entity {name!r}: unrecognised tenant_scope type "
+            f"{type(scope).__name__}"
+        )
+
+
+# Eager validation against the live registries. Fires at import time — any
+# code path (tests, FastAPI boot, the agent loop) that touches this module
+# triggers it, so a malformed schema kills the process at startup with a
+# stack trace pointing at the offending entity. Never let this go silent.
+_validate_tenant_scopes(SCHEMA, _ENTITY_MODELS, _TENANT_PARENT_MODELS)
 
 
 def _apply_joins(stmt, entity: str, model: type, entity_def: EntityDef, joins_used: tuple[str, ...]):
@@ -847,7 +1039,7 @@ def _build_row_query(
     )
     stmt = select(*output_columns).select_from(model)
     stmt = _apply_joins(stmt, request.entity, model, entity_def, joins_used)
-    stmt = _apply_tenant_predicate(stmt, model, business_id)
+    stmt = _apply_tenant_predicate(stmt, entity_def, model, business_id)
 
     for pf in plan_filters:
         stmt = stmt.where(_predicate(_column(request.entity, model, pf.resolved, ctx), pf.op, pf.value))
@@ -921,7 +1113,7 @@ def _build_aggregate_query(
     stmt = select(*select_cols).select_from(model)
     stmt = _apply_joins(stmt, request.entity, model, entity_def, joins_used)
     # Enforcement 1: tenant predicate runs in WHERE — i.e. BEFORE GROUP BY.
-    stmt = _apply_tenant_predicate(stmt, model, business_id)
+    stmt = _apply_tenant_predicate(stmt, entity_def, model, business_id)
     for pf in plan_filters:
         stmt = stmt.where(_predicate(_column(request.entity, model, pf.resolved, ctx), pf.op, pf.value))
     if group_exprs:

@@ -7,7 +7,8 @@ prompt copies)."""
 from __future__ import annotations
 
 import json
-from typing import Any
+from datetime import datetime
+from typing import Any, Optional
 
 from app.read_model.schema import SCHEMA
 from app.write_surface.registry import CAPABILITY_REGISTRY
@@ -85,7 +86,8 @@ ACTION ENVELOPE — emit ONLY this JSON object (no prose, no markdown fences):
 }
 {
   "thought": "...",
-  "action": { "type": "prepare",  "capability": "<name>", "inputs": { ... } }
+  "action": { "type": "prepare",  "capability": "<name>", "inputs": { ... },
+              "answer": "<optional markdown shown ABOVE the confirm card; omit if not needed>" }
 }
 {
   "thought": "...",
@@ -95,6 +97,30 @@ ACTION ENVELOPE — emit ONLY this JSON object (no prose, no markdown fences):
   "thought": "...",
   "action": { "type": "done",     "answer": "<final answer to the user>" }
 }
+
+READ QUERY SHAPE — the `query` object inside a `read` action MUST use these
+top-level keys ONLY: entity, filters, sort, limit, select, aggregations,
+group_by. Anything else (a `where` key, an `order_by` key, a stray `kind`)
+is REJECTED by the parser — there is no silent fallback.
+
+Filters are a LIST of {field, op, value} objects (NEVER a dict-of-dicts).
+The op MUST be one of the operators listed for that field's type in the
+SCHEMA below. For range filters use op="between" with value as a 2-element
+list. Concrete example covering the common shapes:
+
+  {
+    "type": "read",
+    "query": {
+      "entity": "lead_followups",
+      "filters": [
+        {"field": "status",       "op": "=",       "value": "pending"},
+        {"field": "scheduled_at", "op": "between", "value": ["2026-05-25", "2026-05-25"]}
+      ],
+      "sort":   [{"field": "scheduled_at", "direction": "asc"}],
+      "limit":  20,
+      "select": ["id", "title", "scheduled_at", "status"]
+    }
+  }
 
 RULES — follow exactly:
 - Output ONLY the JSON envelope — no prose, no markdown fences, no comments.
@@ -108,6 +134,24 @@ RULES — follow exactly:
   from a prior read, do a READ first to look it up. NEVER invent a UUID — even one from the
   user's goal text must be read-verified first. After a PREPARE the loop will stop and the
   human will confirm separately — do not emit a DONE turn after a prepare.
+- COMPOUND PREPARE — the `answer` field on a PREPARE action:
+    * OPTIONAL markdown text rendered ABOVE the confirm card so a single bubble
+      can carry BOTH information and the prepared action.
+    * USE IT when the goal asks for INFORMATION alongside the write:
+        Goal: "what's overdue? mark the oldest done"
+          → answer: "6 follow-ups are overdue. Oldest: 'Office cabin renovation' (May 17).
+                     The other 5 stay pending."
+          → preview (built by the capability): "Mark follow-up done on lead 'Office cabin renovation'..."
+        Goal: "show all pending follow-ups for Rajesh and mark the first done"
+          → answer: a brief markdown table of what you found, then prepare the first.
+    * OMIT IT for pure-action goals where the preview is self-explanatory:
+        Goal: "mark followup X done"             → no answer; the preview is enough.
+        Goal: "record ₹2000 against invoice 17"  → no answer; the preview is enough.
+    * KEEP IT SHORT — one or two sentences, a small list, or a tiny table. Never
+      paragraphs. Never restate the action itself in the answer (the preview
+      shows the action). Never include UUIDs (they belong in inputs).
+    * DO NOT confuse this with DONE's `answer`. DONE = no write, just text.
+      PREPARE.answer = informational context that accompanies the write.
 - ASK_USER: only when you genuinely cannot proceed without human input (ambiguity, missing
   data the read model can't supply).
 - DONE: when the user's goal has been read-answered and no write is needed.
@@ -145,22 +189,60 @@ def build_system_prompt(schema_ctx: str, capability_ctx: str) -> str:
 # Per-turn message rendering
 # ---------------------------------------------------------------------------
 
-def render_history(goal: str, history, prior_count: int = 0) -> list[dict[str, Any]]:
-    """Single user message: the goal + a compact transcript of prior turns
-    (thought + action + observation SUMMARY — never raw rows).
+def render_history(
+    goal: str,
+    history,
+    prior_count: int = 0,
+    *,
+    now: Optional[datetime] = None,
+) -> list[dict[str, Any]]:
+    """Single user message: a NOW line (when supplied) + the goal + a
+    compact transcript of prior turns (thought + action + observation
+    SUMMARY — never raw rows).
 
     `prior_count` is how many of `history`'s leading entries came from EARLIER
     run_agent calls for this same task. Those turns are tagged inline so the
-    LLM can apply the CONTINUATION rule (do not redo completed work)."""
-    if not history:
-        return [{"role": "user", "content": f"GOAL:\n{goal}"}]
-    lines = [f"GOAL:\n{goal}", "", "TRANSCRIPT SO FAR:"]
-    for i, tr in enumerate(history):
-        tag = " (PRIOR CALL — already completed)" if i < prior_count else ""
-        lines.append(f"-- turn {tr.turn}{tag} --")
-        lines.append(f"thought: {tr.thought}")
-        lines.append(f"action: {json.dumps(tr.action)}")
-        lines.append(f"observation: {tr.observation_summary}")
-    lines.append("")
-    lines.append("Now emit the next action.")
-    return [{"role": "user", "content": "\n".join(lines)}]
+    LLM can apply the CONTINUATION rule (do not redo completed work).
+
+    `now` is the business-local current time, sourced from the same clock
+    `run_agent` hands to the read-model compiler (so `is_overdue` and the
+    LLM's view of "today" agree). It lives in the per-turn user message —
+    NOT the system prompt — because the system prompt is byte-identical
+    every call (Gemini implicit-cache hit ~67%); a moving timestamp in the
+    cached block would invalidate the hit on every minute boundary. The
+    per-turn message is not cached, so a moving timestamp here is free."""
+    parts: list[str] = []
+    if now is not None:
+        parts.append(_now_line(now))
+        parts.append("")
+    parts.append(f"GOAL:\n{goal}")
+    if history:
+        parts.extend(["", "TRANSCRIPT SO FAR:"])
+        for i, tr in enumerate(history):
+            tag = " (PRIOR CALL — already completed)" if i < prior_count else ""
+            parts.append(f"-- turn {tr.turn}{tag} --")
+            parts.append(f"thought: {tr.thought}")
+            parts.append(f"action: {json.dumps(tr.action)}")
+            parts.append(f"observation: {tr.observation_summary}")
+        parts.append("")
+        parts.append("Now emit the next action.")
+    return [{"role": "user", "content": "\n".join(parts)}]
+
+
+def _now_line(now: datetime) -> str:
+    """One unambiguous line the LLM uses to resolve 'today', 'tomorrow',
+    'this week'. ISO date + HH:MM + day-of-week + tz abbreviation.
+
+    Granularity at the minute is enough for the agent's date-range filters;
+    seconds are noise. Day-of-week is included so the LLM doesn't need to
+    compute it (and occasionally get it wrong). The tz abbrev (e.g. 'IST')
+    disambiguates absolute timestamps without forcing the LLM to remember
+    the business's tz from the system prompt."""
+    tzname = now.tzname() or ""
+    # Use full weekday name for clarity; e.g. "Monday".
+    weekday = now.strftime("%A")
+    return (
+        f"NOW: {now.strftime('%Y-%m-%d')} "
+        f"(date), {now.strftime('%H:%M')} {tzname} ({weekday}). "
+        f"Resolve 'today', 'tomorrow', 'this week' against this date."
+    )

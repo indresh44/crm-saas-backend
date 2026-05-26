@@ -38,9 +38,9 @@ CRITICAL — tenant scoping:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 
 
 # ---------------------------------------------------------------------------
@@ -86,13 +86,19 @@ class Operator(str, Enum):
 #: auditable. (UUID-ish identifier columns are typed STRING; the compiler may
 #: choose to refuse CONTAINS on opaque-id fields, but that is a compiler policy,
 #: not a schema concern.)
+#: `in` was previously restricted to ENUM. Forcing it elsewhere meant the
+#: agent had to do N sequential reads for a natural "fetch X and Y by name"
+#: query — each extra value bought one extra LLM turn (~7k tokens + a round
+#: trip). Multi-value equality is the same SQL primitive (column.in_(list))
+#: for every type SQLAlchemy supports, so the restriction was arbitrary.
+#: Extending it is a one-line correctness/perf win.
 OPERATORS_BY_TYPE: dict[FieldType, tuple[Operator, ...]] = {
-    FieldType.STRING: (Operator.EQ, Operator.CONTAINS),
-    FieldType.INTEGER: (Operator.EQ, Operator.LT, Operator.LTE, Operator.GT, Operator.GTE, Operator.BETWEEN),
-    FieldType.DECIMAL: (Operator.EQ, Operator.LT, Operator.LTE, Operator.GT, Operator.GTE, Operator.BETWEEN),
-    FieldType.DATE: (Operator.EQ, Operator.LT, Operator.LTE, Operator.GT, Operator.GTE, Operator.BETWEEN),
-    FieldType.DATETIME: (Operator.EQ, Operator.LT, Operator.LTE, Operator.GT, Operator.GTE, Operator.BETWEEN),
-    FieldType.BOOLEAN: (Operator.EQ,),
+    FieldType.STRING: (Operator.EQ, Operator.CONTAINS, Operator.IN),
+    FieldType.INTEGER: (Operator.EQ, Operator.LT, Operator.LTE, Operator.GT, Operator.GTE, Operator.BETWEEN, Operator.IN),
+    FieldType.DECIMAL: (Operator.EQ, Operator.LT, Operator.LTE, Operator.GT, Operator.GTE, Operator.BETWEEN, Operator.IN),
+    FieldType.DATE: (Operator.EQ, Operator.LT, Operator.LTE, Operator.GT, Operator.GTE, Operator.BETWEEN, Operator.IN),
+    FieldType.DATETIME: (Operator.EQ, Operator.LT, Operator.LTE, Operator.GT, Operator.GTE, Operator.BETWEEN, Operator.IN),
+    FieldType.BOOLEAN: (Operator.EQ, Operator.IN),
     FieldType.ENUM: (Operator.EQ, Operator.IN),
 }
 
@@ -151,6 +157,48 @@ class JoinDef:
     description: str = ""
 
 
+# ---------------------------------------------------------------------------
+# Tenant scoping — declared per entity, enforced by the compiler.
+# ---------------------------------------------------------------------------
+# Two shapes only. ONE hop. The compiler asserts at startup that every
+# ViaParent's parent_table resolves to a Direct-tenanted model (parent has a
+# real business_id column). A ViaParent pointing at another ViaParent
+# (hollow scoping) MUST fail loudly at import, never silently.
+#
+# WHY two dataclasses and not an enum string: each variant carries different
+# data. Direct carries nothing (the predicate is "<entity>.business_id =
+# :tenant"); ViaParent carries the parent table + join key + parent tenant
+# column. Pattern-matching on isinstance keeps the compiler branches honest.
+
+@dataclass(frozen=True)
+class Direct:
+    """Tenant scoping by a direct ``business_id`` column on the entity itself.
+    This is the default and matches every entity declared today; no behavior
+    changes for Direct entities."""
+
+
+@dataclass(frozen=True)
+class ViaParent:
+    """Tenant scoping through ONE parent entity.
+
+    The compiler emits an EXISTS subquery, never a JOIN:
+        WHERE EXISTS (SELECT 1 FROM <parent_table>
+                      WHERE <parent_table>.id = <entity>.<local_key>
+                        AND <parent_table>.<parent_tenant_column> = :tenant)
+
+    EXISTS is mandatory because it filters the outer row set without altering
+    it — a JOIN could multiply rows, shadow columns, or interfere with
+    aggregations. The compiler asserts at module load that ``parent_table``
+    is a Direct-tenanted parent registered in the binding layer.
+    """
+    parent_table: str               # __tablename__ of the parent model
+    local_key: str                  # FK column on THIS entity (e.g. "pipeline_id")
+    parent_tenant_column: str       # tenant column on the parent (today: "business_id")
+
+
+TenantScope = Union[Direct, ViaParent]
+
+
 @dataclass(frozen=True)
 class EntityDef:
     name: str                 # query-facing entity name
@@ -159,6 +207,10 @@ class EntityDef:
     fields: tuple[FieldDef, ...]          # raw columns
     virtual_fields: tuple[FieldDef, ...]  # derived/computed (canonical-governed)
     joins: tuple[JoinDef, ...]
+    # Default preserves today's exact behavior for every existing EntityDef
+    # literal (leads / invoices / customers). Only entities with no direct
+    # business_id column should set ViaParent.
+    tenant_scope: TenantScope = field(default_factory=Direct)
 
 
 # ===========================================================================
@@ -374,26 +426,416 @@ _CUSTOMERS = EntityDef(
 
 
 # ===========================================================================
-# PIPELINE_STAGES — NOT INCLUDED.
+# PIPELINE_STAGES
 # ===========================================================================
-# Schema declaration is straightforward, BUT the compiler's tenant predicate is
-# hardcoded as `getattr(model, "business_id")` (compiler.py:_apply_tenant_predicate,
-# line ~785). PipelineStage has NO `business_id` column — its tenant ownership
-# is transitive via `pipeline_stages.pipeline_id -> pipelines.business_id`.
+# Backing model: app/models/pipeline.py -> class PipelineStage, table
+# "pipeline_stages".
 #
-# Adding pipeline_stages as a top-level entity without first teaching the
-# compiler to scope via an indirect path would EITHER:
-#   - AttributeError at compile time (no `business_id` attribute on PipelineStage), OR
-#   - (if naively fixed by skipping the predicate) leak every business's stages
-#     to every other business — a tenant-isolation breach.
+# Tenant scoping: ViaParent("pipelines", "pipeline_id", "business_id").
+# PipelineStage has NO direct business_id column — its tenant ownership is
+# transitive via pipeline_stages.pipeline_id -> pipelines.business_id. The
+# compiler emits an EXISTS subquery against `pipelines` for every read; see
+# compiler.py:_apply_tenant_predicate.
 #
-# The clean fix is a per-entity tenant_scope declaration in EntityDef, e.g.:
-#   EntityDef(... tenant_scope=ViaJoin(
-#       intermediate_model="pipelines",
-#       local_key="pipeline_id", target_key="id",
-#       intermediate_tenant_column="business_id"))
-# read by the compiler when building the tenant WHERE. That's a compiler change
-# (architectural, not mechanical) and is explicitly out of scope for this task.
+# Excluded on purpose: nothing — there are no internal or sensitive columns
+# on PipelineStage worth hiding from a tenant-scoped read.
+
+_PIPELINE_STAGES = EntityDef(
+    name="pipeline_stages",
+    table="pipeline_stages",
+    model="PipelineStage",
+    fields=(
+        FieldDef("id", FieldType.STRING, description="PipelineStage UUID (primary key)."),
+        FieldDef("pipeline_id", FieldType.STRING, description="FK -> pipelines.id."),
+        FieldDef("name", FieldType.STRING),
+        FieldDef("position", FieldType.INTEGER, description="Display order within the pipeline."),
+        FieldDef("color", FieldType.STRING, description="Hex / named UI color."),
+    ),
+    virtual_fields=(),
+    joins=(),
+    tenant_scope=ViaParent(
+        parent_table="pipelines",
+        local_key="pipeline_id",
+        parent_tenant_column="business_id",
+    ),
+)
+
+
+# ===========================================================================
+# PAYMENTS  (Batch 1 — Direct)
+# ===========================================================================
+# Backing model: app/models/payment.py -> class Payment, table "payments".
+#
+# Excluded on purpose:
+#   - business_id      (tenant key — injected by compiler, never queryable)
+#   - voided_at, voided_reason, voided_by  (audit machinery; the LLM-visible
+#                                            void state is the is_voided virtual)
+#   - replaces_payment_id, edited_at       (audit lineage; not user-query targets)
+
+_PAYMENTS = EntityDef(
+    name="payments",
+    table="payments",
+    model="Payment",
+    fields=(
+        FieldDef("id", FieldType.STRING, description="Payment UUID (primary key)."),
+        FieldDef("invoice_id", FieldType.STRING, description="FK -> invoices.id."),
+        FieldDef("amount", FieldType.DECIMAL),
+        FieldDef(
+            "payment_method", FieldType.ENUM,
+            enum_values=("upi", "cash", "bank_transfer", "card"),
+            description="PaymentMethod enum (app/models/enums.py).",
+        ),
+        FieldDef("payment_date", FieldType.DATE),
+        FieldDef("reference", FieldType.STRING),
+        FieldDef("created_at", FieldType.DATETIME),
+    ),
+    virtual_fields=(
+        FieldDef(
+            "is_voided", FieldType.BOOLEAN, is_virtual=True,
+            canonical_ref="batch-1: payments.voided_at IS NOT NULL",
+            description="True if the payment row has been soft-voided. "
+                        "Filter by is_voided=false to see active payments only.",
+        ),
+    ),
+    joins=(
+        JoinDef(
+            name="invoice",
+            target_table="invoices",
+            local_key="invoice_id",
+            target_key="id",
+            exposes=(
+                FieldDef("invoice_number", FieldType.STRING,
+                         description="invoices.invoice_number"),
+                FieldDef(
+                    "invoice_status", FieldType.ENUM,
+                    enum_values=("draft", "sent", "approved", "partial", "paid", "cancelled"),
+                    description="invoices.status (renamed in projection to avoid clashing with the entity's own fields).",
+                ),
+            ),
+            description="The invoice this payment was recorded against.",
+        ),
+    ),
+)
+
+
+# ===========================================================================
+# CATALOG_ITEMS  (Batch 1 — Direct)
+# ===========================================================================
+# Backing model: app/models/catalog_item.py -> class CatalogItem, table
+# "catalog_items".
+#
+# Excluded on purpose:
+#   - business_id    (tenant key)
+#   - deliverables   (JSONB list — opaque to the LLM; expose via a count
+#                     virtual later if a use case appears)
+#   - updated_at     (not a meaningful query target)
+
+_CATALOG_ITEMS = EntityDef(
+    name="catalog_items",
+    table="catalog_items",
+    model="CatalogItem",
+    fields=(
+        FieldDef("id", FieldType.STRING, description="CatalogItem UUID (primary key)."),
+        FieldDef("name", FieldType.STRING),
+        FieldDef("description", FieldType.STRING),
+        FieldDef(
+            "unit", FieldType.ENUM,
+            enum_values=("piece", "sq_ft", "meter", "kg", "hour",
+                         "session", "month", "trip", "lot", "custom"),
+            description="CatalogItemUnit enum (app/models/enums.py).",
+        ),
+        FieldDef("custom_unit", FieldType.STRING,
+                 description="Free-text unit when unit='custom'."),
+        FieldDef("default_rate", FieldType.DECIMAL),
+        FieldDef("gst_percent", FieldType.DECIMAL),
+        FieldDef("sac_code", FieldType.STRING),
+        FieldDef("is_active", FieldType.BOOLEAN),
+        FieldDef("created_at", FieldType.DATETIME),
+    ),
+    virtual_fields=(),
+    joins=(),
+)
+
+
+# ===========================================================================
+# USERS  (Batch 1 — Direct)
+# ===========================================================================
+# Backing model: app/models/user.py -> class User, table "users".
+#
+# Excluded on purpose:
+#   - business_id     (tenant key)
+#   - phone           (privacy; not useful for assistant tasks)
+#   - last_login_at   (privacy / audit; not a query target)
+#   - created_at      (not requested for v1; can be added if needed)
+
+_USERS = EntityDef(
+    name="users",
+    table="users",
+    model="User",
+    fields=(
+        FieldDef("id", FieldType.STRING, description="User UUID (primary key)."),
+        FieldDef("name", FieldType.STRING),
+        FieldDef("email", FieldType.STRING),
+        FieldDef(
+            "role", FieldType.ENUM,
+            enum_values=("owner", "manager", "staff"),
+            description="UserRole enum (app/models/enums.py).",
+        ),
+        FieldDef("is_active", FieldType.BOOLEAN),
+    ),
+    virtual_fields=(),
+    joins=(),
+)
+
+
+# ===========================================================================
+# LEAD_FOLLOWUPS  (Batch 1 — ViaParent("leads", ...))
+# ===========================================================================
+# Backing model: app/models/lead_followup.py -> class LeadFollowup, table
+# "lead_followups".
+#
+# Tenant scoping: ViaParent("leads", "lead_id", "business_id"). LeadFollowup
+# has no direct business_id column; the EXISTS subquery enforces isolation
+# via leads.business_id.
+
+_LEAD_FOLLOWUPS = EntityDef(
+    name="lead_followups",
+    table="lead_followups",
+    model="LeadFollowup",
+    fields=(
+        FieldDef("id", FieldType.STRING, description="LeadFollowup UUID."),
+        FieldDef("lead_id", FieldType.STRING, description="FK -> leads.id."),
+        FieldDef("scheduled_at", FieldType.DATETIME),
+        FieldDef("note", FieldType.STRING),
+        FieldDef(
+            "status", FieldType.ENUM,
+            enum_values=("pending", "done", "cancelled"),
+            description="Stored as plain string in the DB; enumerated here.",
+        ),
+        FieldDef("created_by", FieldType.STRING, description="FK -> users.id."),
+        FieldDef("completed_at", FieldType.DATETIME,
+                 description="Set when the follow-up is marked done."),
+    ),
+    virtual_fields=(
+        FieldDef(
+            "is_overdue", FieldType.BOOLEAN, is_virtual=True,
+            canonical_ref="batch-1: status='pending' AND scheduled_at < now",
+            description="Per-row overdue flag. Distinct from leads.has_overdue_followup "
+                        "(which is the EXISTS aggregate over a lead).",
+        ),
+        FieldDef(
+            "is_completed", FieldType.BOOLEAN, is_virtual=True,
+            canonical_ref="batch-1: status='done'",
+            description="True iff status='done'.",
+        ),
+    ),
+    joins=(
+        JoinDef(
+            name="lead",
+            target_table="leads",
+            local_key="lead_id",
+            target_key="id",
+            exposes=(
+                FieldDef("lead_title", FieldType.STRING, description="leads.title"),
+            ),
+            description="The lead this follow-up is scheduled on.",
+        ),
+        JoinDef(
+            name="customer",
+            target_table="customers",
+            local_key="lead_id",
+            target_key="id",
+            through="lead_followups.lead_id -> leads.customer_id -> customers.id",
+            exposes=(
+                FieldDef("customer_name", FieldType.STRING,
+                         description="customers.name (via lead)"),
+                FieldDef("customer_phone", FieldType.STRING,
+                         description="customers.phone (via lead)"),
+            ),
+            description=(
+                "The customer this follow-up's lead belongs to (two-hop). "
+                "A follow-up whose lead has no customer_id will return null "
+                "customer fields — expected, not an error. Mirrors the same "
+                "two-hop pattern used by invoices.customer."
+            ),
+        ),
+    ),
+    tenant_scope=ViaParent(
+        parent_table="leads",
+        local_key="lead_id",
+        parent_tenant_column="business_id",
+    ),
+)
+
+
+# ===========================================================================
+# LEAD_ACTIVITIES  (Batch 1 — ViaParent("leads", ...))
+# ===========================================================================
+# Backing model: app/models/lead.py -> class LeadActivity, table
+# "lead_activities".
+#
+# The `type` enum is large because most activity rows are auto-logged by the
+# write surface (stage changes, payments, invoices). Manually-logged subset
+# is {call, whatsapp, meeting, note}; the rest are system events the LLM
+# sees but does not create (the create-activity capability will lock `type`
+# to the manual subset when added in a later batch).
+
+_LEAD_ACTIVITIES = EntityDef(
+    name="lead_activities",
+    table="lead_activities",
+    model="LeadActivity",
+    fields=(
+        FieldDef("id", FieldType.STRING, description="LeadActivity UUID."),
+        FieldDef("lead_id", FieldType.STRING, description="FK -> leads.id."),
+        FieldDef(
+            "type", FieldType.ENUM,
+            enum_values=(
+                "call", "whatsapp", "meeting", "note",
+                "status_change",
+                "followup_scheduled", "followup_rescheduled",
+                "followup_completed", "followup_cancelled",
+                "invoice_created", "invoice_approved",
+                "payment_recorded", "payment_edited",
+                "payment_voided", "payment_moved",
+            ),
+            description="LeadActivityType enum (app/models/enums.py).",
+        ),
+        FieldDef("description", FieldType.STRING),
+        FieldDef("created_by", FieldType.STRING, description="FK -> users.id."),
+        FieldDef("created_at", FieldType.DATETIME),
+    ),
+    virtual_fields=(),
+    joins=(
+        JoinDef(
+            name="lead",
+            target_table="leads",
+            local_key="lead_id",
+            target_key="id",
+            exposes=(
+                FieldDef("lead_title", FieldType.STRING, description="leads.title"),
+            ),
+            description="The lead this activity belongs to.",
+        ),
+        JoinDef(
+            name="customer",
+            target_table="customers",
+            local_key="lead_id",
+            target_key="id",
+            through="lead_activities.lead_id -> leads.customer_id -> customers.id",
+            exposes=(
+                FieldDef("customer_name", FieldType.STRING,
+                         description="customers.name (via lead)"),
+                FieldDef("customer_phone", FieldType.STRING,
+                         description="customers.phone (via lead)"),
+            ),
+            description=(
+                "The customer this activity's lead belongs to (two-hop). "
+                "Same shape as lead_followups.customer and invoices.customer."
+            ),
+        ),
+    ),
+    tenant_scope=ViaParent(
+        parent_table="leads",
+        local_key="lead_id",
+        parent_tenant_column="business_id",
+    ),
+)
+
+
+# ===========================================================================
+# INVOICE_ITEMS  (Batch 1 — ViaParent("invoices", ...))
+# ===========================================================================
+# Backing model: app/models/invoice_item.py -> class InvoiceItem, table
+# "invoice_items".
+#
+# Excluded on purpose:
+#   - deliverables   (JSONB list — opaque to the LLM)
+#
+# Note: `unit` is a plain string on this model (not the CatalogItemUnit
+# enum), so it is typed STRING here, not ENUM.
+
+_INVOICE_ITEMS = EntityDef(
+    name="invoice_items",
+    table="invoice_items",
+    model="InvoiceItem",
+    fields=(
+        FieldDef("id", FieldType.STRING, description="InvoiceItem UUID."),
+        FieldDef("invoice_id", FieldType.STRING, description="FK -> invoices.id."),
+        FieldDef("name", FieldType.STRING),
+        FieldDef("description", FieldType.STRING),
+        FieldDef("unit", FieldType.STRING,
+                 description="Free-text unit (defaults to 'piece'). Not the catalog enum."),
+        FieldDef("quantity", FieldType.DECIMAL),
+        FieldDef("unit_price", FieldType.DECIMAL),
+        FieldDef(
+            "gst_percent", FieldType.DECIMAL,
+            description="DB CHECK restricts to {0, 5, 12, 18, 28}.",
+        ),
+        FieldDef("amount", FieldType.DECIMAL,
+                 description="quantity * unit_price (pre-tax line amount)."),
+        FieldDef("sac_code", FieldType.STRING),
+        FieldDef("catalog_item_id", FieldType.STRING,
+                 description="FK -> catalog_items.id (nullable; ad-hoc items have none)."),
+    ),
+    virtual_fields=(),
+    joins=(),
+    tenant_scope=ViaParent(
+        parent_table="invoices",
+        local_key="invoice_id",
+        parent_tenant_column="business_id",
+    ),
+)
+
+
+# ===========================================================================
+# INVOICE_ADJUSTMENTS  (Batch 1 — ViaParent("invoices", ...))
+# ===========================================================================
+# Backing model: app/models/invoice_adjustment.py -> class InvoiceAdjustment,
+# table "invoice_adjustments".
+#
+# `adjustment_type` is stored as a plain string on the model with a CHECK
+# constraint pinning it to {'discount', 'write_off'}. We expose it as ENUM
+# with those exact values.
+
+_INVOICE_ADJUSTMENTS = EntityDef(
+    name="invoice_adjustments",
+    table="invoice_adjustments",
+    model="InvoiceAdjustment",
+    fields=(
+        FieldDef("id", FieldType.STRING, description="InvoiceAdjustment UUID."),
+        FieldDef("invoice_id", FieldType.STRING, description="FK -> invoices.id."),
+        FieldDef("amount", FieldType.DECIMAL,
+                 description="DB CHECK ensures amount > 0."),
+        FieldDef(
+            "adjustment_type", FieldType.ENUM,
+            enum_values=("discount", "write_off"),
+            description="InvoiceAdjustmentType enum; DB-stored as plain string + CHECK.",
+        ),
+        FieldDef("reason", FieldType.STRING),
+        FieldDef("created_by", FieldType.STRING, description="FK -> users.id."),
+        FieldDef("created_at", FieldType.DATETIME),
+    ),
+    virtual_fields=(),
+    joins=(
+        JoinDef(
+            name="invoice",
+            target_table="invoices",
+            local_key="invoice_id",
+            target_key="id",
+            exposes=(
+                FieldDef("invoice_number", FieldType.STRING,
+                         description="invoices.invoice_number"),
+            ),
+            description="The invoice this adjustment was applied to.",
+        ),
+    ),
+    tenant_scope=ViaParent(
+        parent_table="invoices",
+        local_key="invoice_id",
+        parent_tenant_column="business_id",
+    ),
+)
+
 
 # ===========================================================================
 # The schema registry
@@ -404,4 +846,14 @@ SCHEMA: dict[str, EntityDef] = {
     _LEADS.name: _LEADS,
     _INVOICES.name: _INVOICES,
     _CUSTOMERS.name: _CUSTOMERS,
+    _PIPELINE_STAGES.name: _PIPELINE_STAGES,
+    # Batch 1 — Direct
+    _PAYMENTS.name: _PAYMENTS,
+    _CATALOG_ITEMS.name: _CATALOG_ITEMS,
+    _USERS.name: _USERS,
+    # Batch 1 — ViaParent
+    _LEAD_FOLLOWUPS.name: _LEAD_FOLLOWUPS,
+    _LEAD_ACTIVITIES.name: _LEAD_ACTIVITIES,
+    _INVOICE_ITEMS.name: _INVOICE_ITEMS,
+    _INVOICE_ADJUSTMENTS.name: _INVOICE_ADJUSTMENTS,
 }

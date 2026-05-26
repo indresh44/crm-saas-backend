@@ -30,7 +30,9 @@ from app.api.v1.whatsapp_messages import router as whatsapp_messages_router
 from app.api.v1.public_invoices import router as public_invoices_router
 from app.api.v1.onboarding import router as onboarding_router
 from app.api.v1.whatsapp_webhooks import router as whatsapp_webhooks_router
+from app.core.actor_context import set_actor_context
 from app.core.config import settings
+from app.models.enums import ActorType
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(
@@ -56,6 +58,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def actor_context_middleware(request: Request, call_next):
+    """Default every HTTP request to ActorType.HUMAN for the duration of the
+    handler. Inner scopes (the multi-task runner sets TASK, the agent loop
+    sets AI, the webhook handler sets SYSTEM) re-bind the context for their
+    own work; on exit the outer HUMAN restores. Activity rows created
+    anywhere downstream see the correct actor with no per-route plumbing.
+
+    Webhook routes that should NOT be HUMAN (e.g. WhatsApp webhooks) wrap
+    their own bodies in `set_actor_context(SYSTEM)` — that inner bind wins
+    for the duration of the handler. The outer HUMAN here is harmless if a
+    webhook never emits an activity at HTTP-handler scope (it doesn't)."""
+    with set_actor_context(ActorType.HUMAN):
+        return await call_next(request)
+
 
 @app.exception_handler(ValueError)
 async def value_error_handler(_request: Request, exc: ValueError) -> JSONResponse:

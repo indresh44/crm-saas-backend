@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class LLMSettings(BaseSettings):
     primary_model: str = Field(default="gemini/gemini-3-flash-preview", alias="LLM_PRIMARY_MODEL")
-    # primary_model: str = Field(default="gemini/gemini-3.1-flash-lite-preview", alias="LLM_PRIMARY_MODEL")
+    # primary_model: str = Field(default="gemini/gemini-3.5-flash", alias="LLM_PRIMARY_MODEL")
     # primary_model: str = Field(default="openai/gpt-5.4-nano", alias="LLM_PRIMARY_MODEL")
     # primary_model: str = Field(default="ollama", alias="LLM_PRIMARY_MODEL")
     # primary_model: str = Field(default="gemini/gemini-2.5-flash", alias="LLM_PRIMARY_MODEL")
@@ -12,7 +12,11 @@ class LLMSettings(BaseSettings):
         default="gemini/gemini-3-flash-preview",
         alias="LLM_SUMMARIZATION_MODEL",
     )
-    max_tokens: int = Field(default=1500, alias="LLM_MAX_TOKENS")
+    # Was 1500 — that capped agent answers mid-word on long listings
+    # ("...Customer: Amit Patel * **Tim"). 8192 is a comfortable ceiling for
+    # any reasonable single response and still bounds runaway generation.
+    # Override per-env via LLM_MAX_TOKENS if needed.
+    max_tokens: int = Field(default=8192, alias="LLM_MAX_TOKENS")
     temperature: float = Field(default=0.1, alias="LLM_TEMPERATURE")
     timeout: int = Field(default=20, alias="LLM_TIMEOUT")
     llm_api_key: str | None = Field(default=None, alias="LLM_API_KEY")

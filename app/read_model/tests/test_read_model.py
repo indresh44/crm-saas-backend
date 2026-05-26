@@ -57,8 +57,10 @@ def _expect_reject(fn):
 def test_unknown_entity_fails_fast_with_single_error():
     # Field-level junk is included to prove it is NOT validated when the entity
     # is unknown — the compiler must bail with exactly one entity error.
+    # ("payments" was used here before Batch 1 added it as a real entity;
+    # use a genuinely unknown name so the test continues to mean what it says.)
     req = ReadQuery(
-        entity="payments",
+        entity="definitely_not_an_entity",
         filters=[Filter("bogus_field", "nonsense_op", [1, 2, 3])],
         sort=[SortKey("also_bogus", "sideways")],
         limit=-5,
@@ -540,6 +542,206 @@ def test_aggregate_count_needs_no_clock_but_is_overdue_filter_does():
         assert "now" in str(e).lower()
     else:
         raise AssertionError("expected ValueError: is_overdue filter needs a clock even in aggregate mode")
+
+
+# ===========================================================================
+# ViaParent tenant-scope validation — startup assertions.
+#
+# Exercise `_validate_tenant_scopes` against synthetic schema dicts so we can
+# prove malformed declarations raise loudly without touching the global SCHEMA.
+# The function is deliberately parameterised exactly for this.
+# ===========================================================================
+
+def _via_parent_test_setup():
+    from app.models.lead import Lead
+    from app.models.pipeline import Pipeline, PipelineStage
+    from app.read_model.compiler import _validate_tenant_scopes
+    from app.read_model.schema import Direct, EntityDef, FieldDef, FieldType, ViaParent
+    return {
+        "validate": _validate_tenant_scopes,
+        "Direct": Direct,
+        "ViaParent": ViaParent,
+        "EntityDef": EntityDef,
+        "FieldDef": FieldDef,
+        "FieldType": FieldType,
+        "Lead": Lead,
+        "Pipeline": Pipeline,
+        "PipelineStage": PipelineStage,
+    }
+
+
+def _minimal_entity(name, table, model_name, *, tenant_scope=None,
+                    extra_fields=(), helpers):
+    EntityDef = helpers["EntityDef"]
+    FieldDef = helpers["FieldDef"]
+    FieldType = helpers["FieldType"]
+    base = (FieldDef("id", FieldType.STRING),) + tuple(extra_fields)
+    kwargs = dict(name=name, table=table, model=model_name,
+                  fields=base, virtual_fields=(), joins=())
+    if tenant_scope is not None:
+        kwargs["tenant_scope"] = tenant_scope
+    return EntityDef(**kwargs)
+
+
+def test_validate_tenant_scopes_passes_on_well_formed_schema():
+    h = _via_parent_test_setup()
+    schema = {
+        "pipeline_stages": _minimal_entity(
+            "pipeline_stages", "pipeline_stages", "PipelineStage",
+            extra_fields=(h["FieldDef"]("pipeline_id", h["FieldType"].STRING),),
+            tenant_scope=h["ViaParent"]("pipelines", "pipeline_id", "business_id"),
+            helpers=h,
+        ),
+    }
+    h["validate"](
+        schema=schema,
+        entity_models={"pipeline_stages": h["PipelineStage"]},
+        parent_models={"pipelines": h["Pipeline"]},
+    )  # must not raise
+
+
+def test_validate_tenant_scopes_via_parent_to_non_direct_parent_raises():
+    """The headline 'never silently' check: a parent without business_id is
+    hollow scoping; the validator must reject it loudly."""
+    h = _via_parent_test_setup()
+    # PipelineStage has no business_id column — using it as a parent is hollow.
+    schema = {
+        "fake_child": _minimal_entity(
+            "fake_child", "fake_child", "Fake",
+            extra_fields=(h["FieldDef"]("parent_id", h["FieldType"].STRING),),
+            tenant_scope=h["ViaParent"]("pipeline_stages", "parent_id", "business_id"),
+            helpers=h,
+        ),
+    }
+    try:
+        h["validate"](
+            schema=schema,
+            entity_models={"fake_child": h["PipelineStage"]},
+            parent_models={"pipeline_stages": h["PipelineStage"]},
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        assert "PipelineStage" in msg and "business_id" in msg, msg
+        assert "Multi-hop" in msg, msg
+    else:
+        raise AssertionError("expected ValueError: parent lacks business_id")
+
+
+def test_validate_tenant_scopes_via_parent_to_via_parent_entity_raises():
+    """Same hollow-scoping mistake when parent IS another ViaParent entity
+    in the schema. The validator names the offending child + parent."""
+    h = _via_parent_test_setup()
+    schema = {
+        "pipeline_stages": _minimal_entity(
+            "pipeline_stages", "pipeline_stages", "PipelineStage",
+            extra_fields=(h["FieldDef"]("pipeline_id", h["FieldType"].STRING),),
+            tenant_scope=h["ViaParent"]("pipelines", "pipeline_id", "business_id"),
+            helpers=h,
+        ),
+        "grandchild": _minimal_entity(
+            "grandchild", "grandchild", "Grandchild",
+            extra_fields=(h["FieldDef"]("stage_id", h["FieldType"].STRING),),
+            tenant_scope=h["ViaParent"]("pipeline_stages", "stage_id", "business_id"),
+            helpers=h,
+        ),
+    }
+    try:
+        h["validate"](
+            schema=schema,
+            entity_models={
+                "pipeline_stages": h["PipelineStage"],
+                "grandchild": h["PipelineStage"],
+            },
+            parent_models={
+                "pipelines": h["Pipeline"],
+                "pipeline_stages": h["PipelineStage"],   # registered, but NOT Direct
+            },
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        # Either branch (no business_id / itself ViaParent) may fire first;
+        # both are intentional and both name 'grandchild'.
+        assert "grandchild" in msg, msg
+        assert ("Multi-hop" in msg) or ("itself ViaParent" in msg), msg
+    else:
+        raise AssertionError("expected ValueError: parent is itself ViaParent / hollow")
+
+
+def test_validate_tenant_scopes_via_parent_unknown_parent_table_raises():
+    h = _via_parent_test_setup()
+    schema = {
+        "orphan_child": _minimal_entity(
+            "orphan_child", "orphan_child", "Orphan",
+            extra_fields=(h["FieldDef"]("parent_id", h["FieldType"].STRING),),
+            tenant_scope=h["ViaParent"]("ghosts", "parent_id", "business_id"),
+            helpers=h,
+        ),
+    }
+    try:
+        h["validate"](
+            schema=schema,
+            entity_models={"orphan_child": h["PipelineStage"]},
+            parent_models={},   # 'ghosts' not registered
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        assert "ghosts" in msg and "parent_models" in msg, msg
+    else:
+        raise AssertionError("expected ValueError: parent_table not registered")
+
+
+def test_validate_tenant_scopes_via_parent_bad_local_key_raises():
+    h = _via_parent_test_setup()
+    schema = {
+        "bad_key_child": _minimal_entity(
+            "bad_key_child", "bad_key_child", "BadKey",
+            tenant_scope=h["ViaParent"]("pipelines", "no_such_column", "business_id"),
+            helpers=h,
+        ),
+    }
+    try:
+        h["validate"](
+            schema=schema,
+            entity_models={"bad_key_child": h["PipelineStage"]},   # PipelineStage has no 'no_such_column'
+            parent_models={"pipelines": h["Pipeline"]},
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        assert "no_such_column" in msg and "local_key" in msg, msg
+    else:
+        raise AssertionError("expected ValueError: bad local_key")
+
+
+def test_validate_tenant_scopes_direct_missing_business_id_raises():
+    """Direct entity bound to a model without business_id — must raise. Catches
+    'I declared X as Direct but the model is user-scoped' mistakes."""
+    h = _via_parent_test_setup()
+    schema = {
+        "bad_direct": _minimal_entity(
+            "bad_direct", "bad_direct", "BadDirect",
+            tenant_scope=h["Direct"](),
+            helpers=h,
+        ),
+    }
+    try:
+        h["validate"](
+            schema=schema,
+            entity_models={"bad_direct": h["PipelineStage"]},
+            parent_models={},
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        assert "business_id" in msg and "PipelineStage" in msg, msg
+    else:
+        raise AssertionError("expected ValueError: Direct model lacks business_id")
+
+
+def test_entitydef_default_tenant_scope_is_direct():
+    """Sanity: an EntityDef with no explicit tenant_scope defaults to Direct.
+    Guarantees every existing entity literal keeps today's behavior."""
+    h = _via_parent_test_setup()
+    e = _minimal_entity("anything", "anything", "Anything", helpers=h)
+    assert isinstance(e.tenant_scope, h["Direct"])
 
 
 # ---------------------------------------------------------------------------

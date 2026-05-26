@@ -26,11 +26,30 @@ class LeadActivityType(str, Enum):
     FOLLOWUP_COMPLETED = "followup_completed"
     FOLLOWUP_CANCELLED = "followup_cancelled"
     INVOICE_CREATED = "invoice_created"
+    INVOICE_SENT = "invoice_sent"              # new (DRAFT→SENT transition)
     INVOICE_APPROVED = "invoice_approved"
+    INVOICE_CANCELLED = "invoice_cancelled"    # new
+    INVOICE_ADJUSTED = "invoice_adjusted"      # new
     PAYMENT_RECORDED = "payment_recorded"
     PAYMENT_EDITED = "payment_edited"
     PAYMENT_VOIDED = "payment_voided"
     PAYMENT_MOVED = "payment_moved"
+    LEAD_CREATED = "lead_created"              # new (lifecycle start)
+    LEAD_UPDATED = "lead_updated"              # new (field edits)
+
+
+class ActorType(str, Enum):
+    """Who/what produced an activity row. Distinct from `created_by` (which is
+    the user id, if any). The diary uses this to filter "what the AI did" vs
+    "what the owner did" vs "what the system observed."
+      * HUMAN  — owner via the UI / a direct HTTP route
+      * AI     — write-surface capability invoked through the agent loop
+      * TASK   — same as AI but spawned by the multi-task runner; carries task id
+      * SYSTEM — webhook (incoming WhatsApp), auto-recompute, scheduled jobs"""
+    HUMAN = "human"
+    AI = "ai"
+    TASK = "task"
+    SYSTEM = "system"
 
 
 class QuoteStatus(str, Enum):

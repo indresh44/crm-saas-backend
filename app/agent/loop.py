@@ -129,7 +129,13 @@ async def run_agent(
 
     first_turn = prior_count + 1
     for turn in range(first_turn, first_turn + max_turns):
-        messages = render_history(goal, history, prior_count=prior_count)
+        # Pass the same `now` that the compiler uses for is_overdue etc., so
+        # the LLM's view of "today" and the SQL's view of "today" agree.
+        # `now` lives in the per-turn user message (NOT the cached system
+        # prompt) — moving it into the cache block would invalidate the
+        # implicit Gemini cache hit on every minute boundary.
+        messages = render_history(goal, history, prior_count=prior_count,
+                                  now=now)
 
         # --- LLM call (with one JSON-parse retry) ---
         try:
@@ -213,10 +219,23 @@ async def run_agent(
                 turn=turn, thought=thought, action=action.raw,
                 observation_summary=summary, observation_raw=raw,
             ))
+            # Compound message: a PREPARE may carry an optional `answer`
+            # (markdown) when the user's goal had an informational part
+            # alongside the action ("what's overdue? mark the oldest done").
+            # The frontend renders this text ABOVE the confirm card so the
+            # information question is answered in the same bubble. Coerced
+            # to a clean str; absent / null / non-str -> None (no text).
+            raw_answer = action.raw.get("answer")
+            compound_answer = (
+                str(raw_answer).strip()
+                if isinstance(raw_answer, str) and raw_answer.strip()
+                else None
+            )
             return AgentRunResult(
                 kind="awaiting_confirm", history=tuple(history), tokens=tokens.build(),
                 prepared_action_id=handle.id, preview=handle.preview,
                 editable_fields=tuple(handle.editable_fields),
+                answer=compound_answer,
             )
 
     # Hit the step budget without a terminal action.
@@ -244,7 +263,8 @@ async def _llm_pick_action(
     """One LLM call (with one JSON-parse retry that feeds the error back).
     Records token usage on the builder. Raises _BadActionJSON on both attempts."""
     resp = await llm.chat(system_prompt=system_prompt, messages=messages)
-    tokens.add(turn, resp.model, resp.input_tokens, resp.output_tokens)
+    tokens.add(turn, resp.model, resp.input_tokens, resp.output_tokens,
+               cached_tokens=resp.cached_tokens)
     raw = resp.content or ""
     try:
         return parse_action_json(extract_json_object(raw))
@@ -256,7 +276,8 @@ async def _llm_pick_action(
                         "Emit ONLY the JSON envelope, nothing else."},
         ]
         resp2 = await llm.chat(system_prompt=system_prompt, messages=retry_msgs)
-        tokens.add(turn, resp2.model, resp2.input_tokens, resp2.output_tokens)
+        tokens.add(turn, resp2.model, resp2.input_tokens, resp2.output_tokens,
+                   cached_tokens=resp2.cached_tokens)
         raw2 = resp2.content or ""
         try:
             return parse_action_json(extract_json_object(raw2))

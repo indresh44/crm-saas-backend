@@ -1,9 +1,11 @@
 from datetime import datetime, time, timedelta, timezone
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
+from app.core.json_safe import safe_jsonify
 from app.core.time_utils import day_bounds_utc, today_in
 from app.models.enums import LeadActivityType
 from app.models.lead import Lead, LeadActivity, LeadCreate, LeadRead, LeadUpdate
@@ -43,7 +45,29 @@ def create_lead(session: Session, current_user: User, data: LeadCreate) -> Lead:
         )
 
     lead = Lead(**lead_data)
-    return repo_create_lead(session, lead)
+    lead = repo_create_lead(session, lead)
+
+    # Diary lifecycle event — the new starting entry for every lead. The
+    # survey identified the absence of this as the diary's biggest gap
+    # (every lead's history previously started partway through).
+    create_lead_activity(
+        session,
+        LeadActivity(
+            lead_id=lead.id,
+            type=LeadActivityType.LEAD_CREATED,
+            description=f"Lead {lead.title!r} created in stage {stage.name!r}",
+            created_by=current_user.id,
+            payload=safe_jsonify({
+                "title": lead.title,
+                "stage_id": lead.stage_id,
+                "stage_name": stage.name,
+                "source": lead.source.value if lead.source else None,
+                "estimated_value": lead.estimated_value,
+                "customer_id": lead.customer_id,
+            }),
+        ),
+    )
+    return lead
 
 
 def get_lead(session: Session, current_user: User, lead_id: UUID) -> Lead:
@@ -119,10 +143,49 @@ def update_lead(
     lead = get_lead(session, current_user, lead_id)
 
     update_data = data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(lead, field, value)
 
-    return repo_update_lead(session, lead)
+    # Capture old values BEFORE mutating, for the diary payload.
+    # Only record fields that actually changed (no entry for setattr(x, x)).
+    changed: dict[str, dict[str, Any]] = {}
+    for field, new_value in update_data.items():
+        old_value = getattr(lead, field, None)
+        if old_value != new_value:
+            changed[field] = {"old": old_value, "new": new_value}
+        setattr(lead, field, new_value)
+
+    lead = repo_update_lead(session, lead)
+
+    if not changed:
+        # No-op PATCH (caller sent empty body or values matched current).
+        # Don't log a "0 fields changed" activity — it's pure noise.
+        return lead
+
+    # Human-readable summary: one line per changed field, joined with `; `.
+    # Mirrors the existing STATUS_CHANGE / PAYMENT_EDITED templates in tone.
+    def _fmt(v: Any) -> str:
+        if v is None:
+            return "(empty)"
+        if hasattr(v, "value"):    # enums (LeadSource etc.)
+            return v.value
+        return str(v)
+
+    summary_parts = [
+        f"{f} {_fmt(c['old'])!r} → {_fmt(c['new'])!r}"
+        for f, c in changed.items()
+    ]
+    description = "Updated lead: " + "; ".join(summary_parts)
+
+    create_lead_activity(
+        session,
+        LeadActivity(
+            lead_id=lead.id,
+            type=LeadActivityType.LEAD_UPDATED,
+            description=description,
+            created_by=current_user.id,
+            payload=safe_jsonify({"changed": changed}),
+        ),
+    )
+    return lead
 
 
 def move_lead_stage(
@@ -163,6 +226,12 @@ def move_lead_stage(
         type=LeadActivityType.STATUS_CHANGE,
         description=f"Stage moved from {old_label} to {new_label}",
         created_by=current_user.id,
+        payload=safe_jsonify({
+            "from_stage_id": lead.stage_id if old_stage is None else old_stage.id,
+            "from_stage_name": old_label,
+            "to_stage_id": new_stage.id,
+            "to_stage_name": new_label,
+        }),
     )
     create_lead_activity(session, activity)
 
