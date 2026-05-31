@@ -3,10 +3,15 @@ from sqlmodel import Session
 
 from app.core.database import get_session
 from app.core.dependencies import get_current_user
-from app.models.dashboard import AssistantTasksResponse, PaymentSummaryRead
+from app.models.dashboard import (
+    AssistantTasksResponse,
+    LeadsNeedingActionResponse,
+    PaymentSummaryRead,
+)
 from app.models.user import User
 from app.services.dashboard_service import (
     get_assistant_tasks as service_get_assistant_tasks,
+    get_leads_needing_action as service_get_leads_needing_action,
     get_payment_summary as service_get_payment_summary,
 )
 
@@ -21,6 +26,29 @@ def get_payment_summary(
     return service_get_payment_summary(
         session=session,
         business_id=current_user.business_id,
+    )
+
+
+@router.get(
+    "/dashboard/leads-needing-action",
+    response_model=LeadsNeedingActionResponse,
+)
+def get_leads_needing_action(
+    limit: int = Query(default=10, ge=0, le=50),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> LeadsNeedingActionResponse:
+    """Home-screen action list. Returns up to `limit` (default 10, max 50)
+    leads sorted by next-action urgency, plus a total count and per-type
+    breakdown so the UI can show "+X more" and the secondary counts strip.
+
+    Action set is fixed at cascade types 1-4 (FOLLOWUP_OVERDUE,
+    FOLLOWUP_DUE_TODAY, NO_FOLLOWUP_SET, GONE_QUIET) — FOLLOWUP_UPCOMING
+    and NONE are excluded by design."""
+    return service_get_leads_needing_action(
+        session=session,
+        current_user=current_user,
+        limit=limit,
     )
 
 

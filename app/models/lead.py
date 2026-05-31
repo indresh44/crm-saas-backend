@@ -1,14 +1,63 @@
 from datetime import date, datetime
 from decimal import Decimal
+from enum import Enum
 from typing import Any, Optional
 import uuid
 
-from sqlalchemy import Column, Enum as SaEnum, ForeignKey, Index
+from sqlalchemy import Column, Enum as SaEnum, ForeignKey, Index, text as sa_text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin, UpdatedAtMixin
 from app.models.enums import ActorType, LeadActivityType, LeadSource
+
+
+class NextActionType(str, Enum):
+    """The single derived "what should I do next?" classifier per lead.
+    Cascade priority is the declaration order (first match wins)."""
+
+    FOLLOWUP_OVERDUE = "followup_overdue"
+    FOLLOWUP_DUE_TODAY = "followup_due_today"
+    NO_FOLLOWUP_SET = "no_followup_set"
+    GONE_QUIET = "gone_quiet"
+    FOLLOWUP_UPCOMING = "followup_upcoming"
+    NONE = "none"
+
+
+# urgency_rank mapping — lower = more urgent. Used as the primary sort key
+# across enquiries; secondary sort is `relevant_date ASC NULLS LAST`.
+_URGENCY_RANK: dict[NextActionType, int] = {
+    NextActionType.FOLLOWUP_OVERDUE: 1,
+    NextActionType.FOLLOWUP_DUE_TODAY: 2,
+    NextActionType.NO_FOLLOWUP_SET: 3,
+    NextActionType.GONE_QUIET: 4,
+    NextActionType.FOLLOWUP_UPCOMING: 5,
+    NextActionType.NONE: 6,
+}
+
+
+def urgency_rank_for(action_type: NextActionType) -> int:
+    return _URGENCY_RANK[action_type]
+
+
+# The action set that surfaces on the home screen "needs attention" list.
+# Cascade types 1-4. UPCOMING and NONE are explicitly excluded.
+HOME_NEEDS_ACTION_TYPES: frozenset[NextActionType] = frozenset({
+    NextActionType.FOLLOWUP_OVERDUE,
+    NextActionType.FOLLOWUP_DUE_TODAY,
+    NextActionType.NO_FOLLOWUP_SET,
+    NextActionType.GONE_QUIET,
+})
+
+
+class NextActionSummary(SQLModel):
+    """Server-derived next action for one lead. The frontend renders this
+    verbatim — no business logic in the UI."""
+
+    type: NextActionType
+    label: str
+    urgency_rank: int
+    relevant_date: Optional[datetime] = None
 
 
 def _lead_activity_type_values(enum_class: type[LeadActivityType]) -> list[str]:
@@ -53,6 +102,7 @@ class LeadRead(LeadBase):
     stage_color: Optional[str] = None
     created_at: CreatedAtMixin.__annotations__["created_at"]
     updated_at: UpdatedAtMixin.__annotations__["updated_at"]
+    next_action: Optional[NextActionSummary] = None
 
 
 class LeadUpdate(SQLModel):
@@ -86,6 +136,16 @@ class Lead(LeadBase, UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, table=
             values_callable=_lead_source_values,
         ),
         nullable=True,
+    )
+    # 0044 — last_contacted_at is bumped whenever a CALL or WHATSAPP
+    # activity lands; powers the GONE_QUIET cascade without scanning
+    # lead_activities. phone_flagged is set when an outcome of
+    # wrong_number / wa_no_number is logged so the UI can warn the user.
+    last_contacted_at: Optional[datetime] = Field(default=None, nullable=True)
+    phone_flagged: bool = Field(
+        default=False,
+        nullable=False,
+        sa_column_kwargs={"server_default": sa_text("false")},
     )
 
 
@@ -124,10 +184,19 @@ class LeadActivityRead(LeadActivityBase):
     payload: Optional[dict[str, Any]] = None
     chat_session_id: Optional[uuid.UUID] = None
     task_id: Optional[uuid.UUID] = None
+    followup_id: Optional[uuid.UUID] = None
 
 
 class LeadActivity(LeadActivityBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=True):
     __tablename__ = "lead_activities"
+    __table_args__ = (
+        # 0044 — timeline read path is always lead-scoped, newest-first.
+        Index(
+            "ix_lead_activities_lead_created_desc",
+            "lead_id", sa_text("created_at DESC"),
+        ),
+        Index("ix_lead_activities_followup_id", "followup_id"),
+    )
 
     lead_id: uuid.UUID = Field(foreign_key="leads.id", index=True)
     type: LeadActivityType = Field(
@@ -174,7 +243,53 @@ class LeadActivity(LeadActivityBase, UUIDPrimaryKeyMixin, CreatedAtMixin, table=
             nullable=True,
         ),
     )
+    # 0044 — links an activity row to the follow-up it resolved (call/whatsapp
+    # outcomes). NULL for everything that isn't a follow-up resolution. ON
+    # DELETE SET NULL so deleting a follow-up doesn't blow away its diary.
+    followup_id: Optional[uuid.UUID] = Field(
+        default=None,
+        sa_column=Column(
+            ForeignKey("lead_followups.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
 
 
 class LeadMoveRequest(SQLModel):
     stage_id: uuid.UUID
+
+
+class LeadContextFollowupRead(SQLModel):
+    """One follow-up row in the per-lead context bundle. Lighter than
+    `LeadFollowupRead` — only the fields the dashboard context accordion
+    actually renders."""
+
+    id: uuid.UUID
+    scheduled_at: datetime
+    note: Optional[str] = None
+    status: str  # pending | done | cancelled
+    completed_at: Optional[datetime] = None
+
+
+class LeadContextActivityRead(SQLModel):
+    """One human-touch activity row in the context bundle. Mirrors the
+    GONE_QUIET cascade's "what counts as a touch" definition — only
+    CALL/WHATSAPP/MEETING/NOTE entries by HUMAN/AI actors. System events
+    never appear here."""
+
+    id: uuid.UUID
+    created_at: datetime
+    type: LeadActivityType
+    description: str
+
+
+class LeadContextRead(SQLModel):
+    """Per-lead context bundle for the dashboard action-card accordion.
+
+    Lazy-fetched on first expand. Compact-by-design: each list is capped
+    at 3 — for "more", users click through to the full enquiry page."""
+
+    enquiry_note: Optional[str] = None
+    ai_summary: Optional[str] = None  # placeholder; AI summaries not built yet
+    recent_followups: list[LeadContextFollowupRead] = []
+    recent_activity: list[LeadContextActivityRead] = []

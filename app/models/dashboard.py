@@ -4,6 +4,9 @@ from uuid import UUID
 
 from sqlmodel import SQLModel
 
+from app.models.lead import LeadRead
+from app.models.lead_followup import LeadFollowupRead
+
 
 class OverdueInvoiceSummary(SQLModel):
     invoice_id: str
@@ -24,6 +27,33 @@ class PaymentSummaryRead(SQLModel):
     total_outstanding: float
     outstanding_invoice_count: int
     overdue_invoices: list[OverdueInvoiceSummary]
+
+
+class LeadNeedingActionRead(LeadRead):
+    """LeadRead enriched with the lead's open pending follow-up, if any.
+
+    Dashboard-only — added so the home action list can render attempt-streak
+    badges, last-outcome, and the scheduled-at time without an N+1 fan-out
+    per card. `null` for cascade types that legitimately have no pending
+    follow-up (NO_FOLLOWUP_SET, and GONE_QUIET rows whose pending was
+    cancelled). Kept as a subclass of `LeadRead` so callers and frontends
+    that don't care continue to read the lead fields untouched."""
+
+    open_followup: Optional[LeadFollowupRead] = None
+
+
+class LeadsNeedingActionResponse(SQLModel):
+    """Home-screen "what should I do next" payload.
+
+    `items` is the top-N (default 10) urgent enquiries — already sorted by
+    cascade priority then relevant_date. `total` is the full count across
+    all action types (1-4) so the UI can render "+X more". `counts_by_type`
+    breaks `total` down by cascade type for the optional secondary strip
+    (e.g. "4 overdue · 2 today · 7 no follow-up · 3 quiet")."""
+
+    items: list[LeadNeedingActionRead]
+    total: int
+    counts_by_type: dict[str, int]
 
 
 # ---------------------------------------------------------------------------

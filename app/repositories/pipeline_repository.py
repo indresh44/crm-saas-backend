@@ -1,6 +1,7 @@
 from typing import List, Optional
 from uuid import UUID
 
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.models.pipeline import Pipeline, PipelineStage
@@ -85,4 +86,23 @@ def update_pipeline_stage(session: Session, stage: PipelineStage) -> PipelineSta
     session.commit()
     session.refresh(stage)
     return stage
+
+
+def get_stage_by_name_for_business(
+    session: Session,
+    business_id: UUID,
+    name: str,
+) -> Optional[PipelineStage]:
+    """Case-insensitive stage lookup by name within a business's pipeline.
+    Used by `resolve_followup` to resolve `stage_to="Lost"` etc. without
+    requiring the caller to know the stage UUID."""
+    statement = (
+        select(PipelineStage)
+        .join(Pipeline, PipelineStage.pipeline_id == Pipeline.id)
+        .where(
+            Pipeline.business_id == business_id,
+            func.lower(PipelineStage.name) == name.lower(),
+        )
+    )
+    return session.exec(statement).first()
 

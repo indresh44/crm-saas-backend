@@ -6,11 +6,19 @@ from sqlmodel import Session
 
 from app.core.database import get_session
 from app.core.dependencies import get_current_user
-from app.models.lead import LeadCreate, LeadMoveRequest, LeadRead, LeadUpdate
+from app.models.lead import (
+    LeadContextRead,
+    LeadCreate,
+    LeadMoveRequest,
+    LeadRead,
+    LeadUpdate,
+)
 from app.models.user import User
 from app.services.lead_service import (
     create_lead as service_create_lead,
     get_lead as service_get_lead,
+    get_lead_context as service_get_lead_context,
+    get_lead_read as service_get_lead_read,
     get_todays_followups as service_get_todays_followups,
     list_leads as service_list_leads,
     move_lead_stage as service_move_lead_stage,
@@ -58,8 +66,24 @@ def get_lead(
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> LeadRead:
-    lead = service_get_lead(session=session, current_user=current_user, lead_id=lead_id)
-    return lead
+    return service_get_lead_read(
+        session=session, current_user=current_user, lead_id=lead_id,
+    )
+
+
+@router.get("/leads/{lead_id}/context", response_model=LeadContextRead)
+def get_lead_context(
+    lead_id: UUID,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> LeadContextRead:
+    """Lazy-fetched bundle powering the dashboard action-card accordion:
+    enquiry note + AI summary slot + last 3 follow-ups + last 3 human-touch
+    activities. See `lead_service.get_lead_context` for the data shape and
+    filtering rules."""
+    return service_get_lead_context(
+        session=session, current_user=current_user, lead_id=lead_id,
+    )
 
 
 @router.patch("/leads/{lead_id}", response_model=LeadRead)

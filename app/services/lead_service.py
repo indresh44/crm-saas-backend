@@ -8,18 +8,36 @@ from sqlmodel import Session, select
 from app.core.json_safe import safe_jsonify
 from app.core.time_utils import day_bounds_utc, today_in
 from app.models.enums import LeadActivityType
-from app.models.lead import Lead, LeadActivity, LeadCreate, LeadRead, LeadUpdate
+from app.models.lead import (
+    Lead,
+    LeadActivity,
+    LeadContextActivityRead,
+    LeadContextFollowupRead,
+    LeadContextRead,
+    LeadCreate,
+    LeadRead,
+    LeadUpdate,
+)
 from app.models.user import User
 from app.repositories.business_repository import get_business_by_id
+from app.repositories.lead_followup_repository import (
+    list_pending_followups_for_lead_ids,
+    list_recent_followups_for_lead,
+)
 from app.repositories.lead_repository import (
     create_lead as repo_create_lead,
     create_lead_activity,
+    get_last_completed_followup_per_lead,
+    get_last_human_touch_per_lead,
     get_lead_by_id,
+    get_lead_read_by_id,
     get_pipeline_stage_by_id,
     list_leads_for_business,
+    list_recent_human_activities_for_lead,
     move_lead_stage as repo_move_lead_stage,
     update_lead as repo_update_lead,
 )
+from app.services.lead_next_action_service import compute_next_actions_bulk
 
 
 def _business_timezone(session: Session, business_id: UUID) -> str:
@@ -85,11 +103,115 @@ def list_leads(
     current_user: User,
     customer_id: UUID | None = None,
 ) -> list[LeadRead]:
-    return list_leads_for_business(
+    leads = list_leads_for_business(
         session,
         business_id=current_user.business_id,
         customer_id=customer_id,
     )
+    _attach_next_actions(session, current_user.business_id, leads)
+    return leads
+
+
+def _attach_next_actions(
+    session: Session,
+    business_id: UUID,
+    leads: list[LeadRead],
+) -> None:
+    """Mutates the list to populate `next_action` on every lead.
+
+    Three bulk queries (pending follow-ups, last human touch, last
+    completed follow-up) keep this O(1) in round-trips regardless of the
+    list size. The cascade itself is pure Python — see
+    `lead_next_action_service`."""
+    if not leads:
+        return
+    lead_ids = [lead.id for lead in leads]
+    pending = list_pending_followups_for_lead_ids(session, lead_ids)
+    last_human = get_last_human_touch_per_lead(session, lead_ids)
+    last_completed = get_last_completed_followup_per_lead(session, lead_ids)
+    tz = _business_timezone(session, business_id)
+    summaries = compute_next_actions_bulk(
+        leads=leads,
+        pending_followups=pending,
+        last_human_touch_by_lead=last_human,
+        last_completed_followup_by_lead=last_completed,
+        business_tz=tz,
+    )
+    for lead in leads:
+        lead.next_action = summaries.get(lead.id)
+
+
+def get_lead_context(
+    session: Session,
+    current_user: User,
+    lead_id: UUID,
+) -> LeadContextRead:
+    """Compact context bundle for the dashboard action-card accordion.
+
+    Three sources, all already tenant-scoped via `get_lead` (which 404s
+    on cross-tenant access):
+      * enquiry_note  — lead.notes
+      * recent_followups — last 3 by MAX(completed_at, scheduled_at)
+      * recent_activity  — last 3 CALL/WHATSAPP/MEETING/NOTE rows by
+        HUMAN/AI actors (matches the GONE_QUIET cascade filter so
+        "recent activity" and "what counts as a touch" agree).
+
+    `ai_summary` is reserved for a future feature — returns None today.
+    The frontend hides the block entirely when null, so this is a
+    forward-compatible slot, not vaporware in the rendered UI."""
+    # 404 if cross-tenant — get_lead raises HTTPException.
+    lead = get_lead(session, current_user, lead_id)
+
+    followups = list_recent_followups_for_lead(session, lead.id, limit=3)
+    activities = list_recent_human_activities_for_lead(session, lead.id, limit=3)
+
+    return LeadContextRead(
+        enquiry_note=lead.notes or None,
+        ai_summary=None,
+        recent_followups=[
+            LeadContextFollowupRead(
+                id=f.id,
+                scheduled_at=f.scheduled_at,
+                note=f.note,
+                status=f.status,
+                completed_at=f.completed_at,
+            )
+            for f in followups
+        ],
+        recent_activity=[
+            LeadContextActivityRead(
+                id=a.id,
+                created_at=a.created_at,
+                type=a.type,
+                description=a.description,
+            )
+            for a in activities
+        ],
+    )
+
+
+def get_lead_read(
+    session: Session,
+    current_user: User,
+    lead_id: UUID,
+) -> LeadRead:
+    """Enriched single-lead read for the GET /leads/{id} endpoint.
+
+    Returns LeadRead with customer/stage joins AND `next_action` populated
+    via the same cascade used by the list view. Distinct from `get_lead`
+    (which returns the bare ORM `Lead` for service-internal mutation)."""
+    lead_read = get_lead_read_by_id(
+        session=session,
+        business_id=current_user.business_id,
+        lead_id=lead_id,
+    )
+    if lead_read is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lead not found",
+        )
+    _attach_next_actions(session, current_user.business_id, [lead_read])
+    return lead_read
 
 
 def search_leads(

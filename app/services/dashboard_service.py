@@ -12,17 +12,24 @@ from app.models.agent_task import AgentTask, TaskStatus
 from app.models.dashboard import (
     AssistantTaskSummary,
     AssistantTasksResponse,
+    LeadNeedingActionRead,
+    LeadsNeedingActionResponse,
     OverdueInvoiceSummary,
     PaymentSummaryRead,
 )
-from app.models.lead import LeadRead
+from app.models.lead import LeadRead, NextActionType
+from app.models.lead_followup import LeadFollowupRead
 from app.models.user import User
 from app.repositories.business_repository import get_business_by_id
 from app.repositories.dashboard_repository import (
     fetch_monthly_collections,
     fetch_outstanding_and_overdue,
 )
+from app.repositories.lead_followup_repository import (
+    get_open_followups_for_lead_ids,
+)
 from app.services.lead_followup_service import list_overdue_followups, list_todays_followups
+from app.services.lead_next_action_service import is_home_action, sort_key_for_home
 from app.services.lead_service import list_leads
 
 
@@ -70,6 +77,77 @@ def get_payment_summary(
         total_outstanding=_to_float(outstanding_data["total_outstanding"]),
         outstanding_invoice_count=int(outstanding_data["outstanding_invoice_count"]),
         overdue_invoices=overdue_invoices,
+    )
+
+
+def get_leads_needing_action(
+    session: Session,
+    current_user: User,
+    limit: int = 10,
+) -> LeadsNeedingActionResponse:
+    """Home-screen action list — every lead with a cascade type in {OVERDUE,
+    DUE_TODAY, NO_FOLLOWUP_SET, GONE_QUIET}, sorted urgent-first, capped at
+    `limit` items plus a total count for "+X more".
+
+    Reuses `list_leads()` which already populates `next_action` on every
+    LeadRead via the bulk cascade — so this endpoint is one extra pass
+    over the in-memory list, no additional DB round-trips beyond what
+    `list_leads` already does."""
+    all_leads = list_leads(session=session, current_user=current_user)
+
+    needing: list[LeadRead] = [
+        lead for lead in all_leads
+        if lead.next_action is not None and is_home_action(lead.next_action)
+    ]
+
+    needing.sort(key=lambda lead: sort_key_for_home(lead.next_action))
+
+    counts_by_type: dict[str, int] = {}
+    for lead in needing:
+        key = lead.next_action.type.value
+        counts_by_type[key] = counts_by_type.get(key, 0) + 1
+
+    # Guarantee every action-type key is present in the response (zero-
+    # value entries make frontend rendering branch-free).
+    for action_type in (
+        NextActionType.FOLLOWUP_OVERDUE,
+        NextActionType.FOLLOWUP_DUE_TODAY,
+        NextActionType.NO_FOLLOWUP_SET,
+        NextActionType.GONE_QUIET,
+    ):
+        counts_by_type.setdefault(action_type.value, 0)
+
+    capped = max(0, limit)
+    capped_items = needing[:capped]
+
+    # Bulk-fetch open pending follow-ups for just the top-N — one query for
+    # all of them via `get_open_followups_for_lead_ids`. Items in cascade
+    # types NO_FOLLOWUP_SET (and the GONE_QUIET subset whose pending was
+    # cancelled) will simply be missing from the map and get `open_followup
+    # = None` in the response.
+    top_lead_ids = [lead.id for lead in capped_items]
+    open_followups_by_lead = get_open_followups_for_lead_ids(
+        session=session, lead_ids=top_lead_ids,
+    )
+
+    enriched_items: list[LeadNeedingActionRead] = []
+    for lead in capped_items:
+        open_followup = open_followups_by_lead.get(lead.id)
+        enriched_items.append(
+            LeadNeedingActionRead(
+                **lead.model_dump(),
+                open_followup=(
+                    LeadFollowupRead.model_validate(open_followup, from_attributes=True)
+                    if open_followup is not None
+                    else None
+                ),
+            )
+        )
+
+    return LeadsNeedingActionResponse(
+        items=enriched_items,
+        total=len(needing),
+        counts_by_type=counts_by_type,
     )
 
 

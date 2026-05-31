@@ -110,6 +110,43 @@ class TaskStatus(str, Enum):
     DONE = "done"
 
 
+class FollowupStatus(str, Enum):
+    """Real Postgres enum — stored on lead_followups.status (DB type
+    `followup_status`)."""
+
+    PENDING = "pending"
+    DONE = "done"
+    CANCELLED = "cancelled"
+
+
+class Outcome(str, Enum):
+    """App-side only. Lives in lead_activities.payload JSON, NOT a DB enum —
+    keep additions cheap. Covers the two channels we currently log outcomes
+    for (call + WhatsApp). Keep in sync with the resolve-followup UI."""
+
+    NO_ANSWER = "no_answer"
+    BUSY = "busy"
+    WRONG_NUMBER = "wrong_number"
+    SPOKE_INTERESTED = "spoke_interested"
+    SPOKE_LATER = "spoke_later"
+    SPOKE_NOT_INTERESTED = "spoke_not_interested"
+    WA_SENT = "wa_sent"
+    WA_REPLIED = "wa_replied"
+    WA_LATER = "wa_later"
+    WA_NO_NUMBER = "wa_no_number"
+
+
+class ResultAction(str, Enum):
+    """App-side only. The post-outcome disposition picked in the resolve
+    flow — what the user chose to do with the follow-up after logging the
+    outcome. Stored in lead_activities.payload."""
+
+    RESCHEDULED = "rescheduled"
+    NEXT_FOLLOWUP = "next_followup"
+    CLOSED = "closed"
+    MARKED_DONE = "marked_done"
+
+
 class CatalogItemUnit(str, Enum):
     """Common units. The 'custom' value lets owners type their own unit."""
 

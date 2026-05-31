@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from sqlmodel import Session, select
 from app.models.enums import LeadActivityType
 from app.models.lead import LeadActivity, LeadActivityCreate, LeadActivityUpdate
 from app.models.user import User
+from app.repositories import lead_activity_repository as activity_repo
 from app.repositories.lead_repository import get_lead_by_id
 
 
@@ -129,4 +131,44 @@ def list_activities(
 
     statement = select(LeadActivity).where(LeadActivity.lead_id == lead.id)
     return list(session.exec(statement).all())
+
+
+# Hard cap so a malicious / careless ?limit=999999 can't pin the DB.
+_TIMELINE_MAX_LIMIT = 100
+
+
+def list_activities_timeline(
+    session: Session,
+    current_user: User,
+    lead_id: UUID,
+    *,
+    before: datetime | None = None,
+    limit: int = 50,
+) -> tuple[list[LeadActivity], datetime | None]:
+    """Tenant-checked, cursor-paged diary read for one lead.
+
+    Returns (activities, next_cursor). next_cursor = created_at of the
+    last row (i.e., the oldest in this page), or None if the page didn't
+    fill `limit` (= no more rows). The route surfaces this verbatim.
+    """
+    lead = get_lead_by_id(
+        session=session,
+        business_id=current_user.business_id,
+        lead_id=lead_id,
+    )
+    if lead is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Lead not found",
+        )
+
+    effective_limit = max(1, min(limit, _TIMELINE_MAX_LIMIT))
+    rows = activity_repo.list_for_lead(
+        session,
+        lead_id=lead.id,
+        before=before,
+        limit=effective_limit,
+    )
+    next_cursor = rows[-1].created_at if len(rows) == effective_limit else None
+    return rows, next_cursor
 

@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 
 from app.core.json_safe import safe_jsonify
 from app.core.time_utils import day_bounds_utc, format_local, today_in
-from app.models.enums import LeadActivityType
+from app.models.enums import LeadActivityType, Outcome, ResultAction
 from app.models.lead import Lead, LeadActivity
 from app.models.lead_followup import (
     LeadFollowup,
@@ -19,6 +19,9 @@ from app.models.lead_followup import (
     LeadFollowupUpdate,
 )
 from app.models.user import User
+from app.repositories import lead_activity_repository as activity_repo
+from app.repositories import lead_followup_repository as followup_repo
+from app.repositories import lead_repository as lead_repo
 from app.repositories.business_repository import get_business_by_id
 from app.repositories.lead_followup_repository import (
     create_lead_followup as repo_create_lead_followup,
@@ -30,6 +33,7 @@ from app.repositories.lead_followup_repository import (
     update_lead_followup as repo_update_lead_followup,
 )
 from app.repositories.lead_repository import create_lead_activity, get_lead_by_id
+from app.repositories.pipeline_repository import get_stage_by_name_for_business
 
 
 def _business_timezone(session: Session, business_id: UUID) -> str:
@@ -343,3 +347,281 @@ def cancel_followup(
             note=data.note,
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# resolve_followup — the outcome flow. One transaction, classified by the
+# Outcome enum, emits 1-2 activity rows and conditionally creates the next
+# follow-up. INVARIANTS (do not break):
+#   * result_action lands in payload ONLY from this function.
+#   * attempt_count++ and the activity insert ride the same commit.
+#   * Tenant check happens before any mutation (via followup_repo.get_with_lead).
+# ---------------------------------------------------------------------------
+
+
+# Channel → primary activity type. Resolve flow is call/whatsapp only.
+_CHANNEL_TO_ACTIVITY_TYPE: dict[str, LeadActivityType] = {
+    "call": LeadActivityType.CALL,
+    "whatsapp": LeadActivityType.WHATSAPP,
+}
+
+# Outcome buckets — drives the flow. Keep in sync with the Outcome enum.
+_NO_CONTACT = {Outcome.NO_ANSWER, Outcome.BUSY}
+_SENT = {Outcome.WA_SENT}
+_POSITIVE = {Outcome.SPOKE_INTERESTED, Outcome.WA_REPLIED}
+_NEUTRAL = {Outcome.SPOKE_LATER, Outcome.WA_LATER}
+_TERMINAL_NOT_INTERESTED = {Outcome.SPOKE_NOT_INTERESTED}
+_WRONG_NUMBER = {Outcome.WRONG_NUMBER}
+_WA_NO_NUMBER = {Outcome.WA_NO_NUMBER}  # treated as no-contact reschedule
+
+
+# Human-readable labels for the activity description fallback. The frontend
+# already has the equivalent in `OUTCOME_META[outcome].title`; we duplicate
+# the strings here (small, stable map) so the diary stays readable without
+# the activity row depending on a payload field for rendering.
+_OUTCOME_LABEL: dict[Outcome, str] = {
+    Outcome.NO_ANSWER: "No answer",
+    Outcome.BUSY: "Busy / cut off",
+    Outcome.WRONG_NUMBER: "Wrong number",
+    Outcome.SPOKE_INTERESTED: "Interested",
+    Outcome.SPOKE_LATER: "Call me later",
+    Outcome.SPOKE_NOT_INTERESTED: "Not interested",
+    Outcome.WA_SENT: "Sent — awaiting reply",
+    Outcome.WA_REPLIED: "Replied — interested",
+    Outcome.WA_LATER: "Replied — not now",
+    Outcome.WA_NO_NUMBER: "Number not on WhatsApp",
+}
+
+
+def _activity_description(channel: str, outcome: Outcome, note: str | None) -> str:
+    """Build a non-null description for the primary lead_activities row.
+
+    `lead_activities.description` is NOT NULL (since 0002). When the user
+    didn't type a note we synthesize one from the channel + outcome so
+    the timeline still reads sensibly — e.g. "WhatsApp · Sent — awaiting
+    reply". When a note IS supplied we prefer it verbatim.
+    """
+    if note and note.strip():
+        return note.strip()
+    label = _OUTCOME_LABEL.get(outcome, outcome.value.replace("_", " "))
+    channel_label = "WhatsApp" if channel == "whatsapp" else "Call"
+    return f"{channel_label} · {label}"
+
+
+def resolve_followup(
+    session: Session,
+    current_user: User,
+    *,
+    followup_id: UUID,
+    channel: str,
+    outcome: Outcome,
+    note: str | None = None,
+    next_dt: datetime | None = None,
+    stage_to: str | None = None,
+    set_no_followup: bool = False,
+) -> dict[str, Any]:
+    """Resolve a follow-up with a user-logged outcome.
+
+    Atomic: every write below rides one session.commit() at the end. If
+    anything raises after the first mutation, SQLAlchemy rolls back.
+
+    Returns: { followup, lead, next_followup, activities_created }.
+    """
+    if channel not in _CHANNEL_TO_ACTIVITY_TYPE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="channel must be 'call' or 'whatsapp'",
+        )
+    activity_type = _CHANNEL_TO_ACTIVITY_TYPE[channel]
+    outcome = Outcome(outcome)  # accept raw string too
+
+    # --- 1. Tenant-checked load ---
+    followup, lead = followup_repo.get_with_lead(
+        session, followup_id, current_user.business_id
+    )
+    if followup.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Follow-up is already {followup.status}; cannot resolve.",
+        )
+
+    activities_created = 0
+    next_followup: LeadFollowup | None = None
+    result_action: ResultAction
+
+    # --- 2. Classify + mutate state (still no commit) ---
+    if outcome in _NO_CONTACT or outcome in _WA_NO_NUMBER:
+        # No-contact: stay pending, bump attempts, push the date out.
+        if next_dt is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="next_dt is required for a no-contact outcome",
+            )
+        followup_repo.reschedule(
+            session, followup, new_dt=next_dt, outcome=outcome.value
+        )
+        result_action = ResultAction.RESCHEDULED
+        # Intentionally NOT touching lead.last_contacted_at — there was
+        # no contact.
+
+    elif outcome in _SENT:
+        # WhatsApp sent (no reply yet). Closes this attempt, optionally
+        # opens a chase follow-up. Default chase = +2 days.
+        followup_repo.complete(session, followup, outcome=outcome.value)
+        if not set_no_followup:
+            chase_at = next_dt or (datetime.now(timezone.utc) + timedelta(days=2))
+            next_followup = followup_repo.create_next(
+                session,
+                lead_id=lead.id,
+                scheduled_dt=chase_at,
+                created_by=current_user.id,
+                followup_type=channel,
+            )
+            result_action = ResultAction.NEXT_FOLLOWUP
+        else:
+            result_action = ResultAction.MARKED_DONE
+        # Do NOT touch last_contacted_at — message sent ≠ conversation.
+
+    elif outcome in _POSITIVE:
+        followup_repo.complete(session, followup, outcome=outcome.value)
+        lead_repo.touch_contacted(session, lead)
+
+        if stage_to:
+            new_stage = get_stage_by_name_for_business(
+                session, current_user.business_id, stage_to
+            )
+            if new_stage is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Stage '{stage_to}' not found for this business",
+                )
+            old_stage_id = lead.stage_id
+            lead_repo.set_stage(session, lead, new_stage.id)
+            activity_repo.add(
+                session,
+                lead_id=lead.id,
+                type=LeadActivityType.STATUS_CHANGE,
+                description=f"Stage moved to {new_stage.name}",
+                followup_id=followup.id,
+                created_by=current_user.id,
+                payload=safe_jsonify({
+                    "from_stage_id": old_stage_id,
+                    "to_stage_id": new_stage.id,
+                    "to_stage_name": new_stage.name,
+                }),
+            )
+            activities_created += 1
+
+        if not set_no_followup:
+            if next_dt is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="next_dt is required unless set_no_followup=true",
+                )
+            next_followup = followup_repo.create_next(
+                session,
+                lead_id=lead.id,
+                scheduled_dt=next_dt,
+                created_by=current_user.id,
+                followup_type=channel,
+            )
+            result_action = ResultAction.NEXT_FOLLOWUP
+        else:
+            result_action = ResultAction.MARKED_DONE
+
+    elif outcome in _NEUTRAL:
+        followup_repo.complete(session, followup, outcome=outcome.value)
+        lead_repo.touch_contacted(session, lead)
+        if not set_no_followup:
+            if next_dt is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="next_dt is required unless set_no_followup=true",
+                )
+            next_followup = followup_repo.create_next(
+                session,
+                lead_id=lead.id,
+                scheduled_dt=next_dt,
+                created_by=current_user.id,
+                followup_type=channel,
+            )
+            result_action = ResultAction.NEXT_FOLLOWUP
+        else:
+            result_action = ResultAction.MARKED_DONE
+
+    elif outcome in _TERMINAL_NOT_INTERESTED:
+        followup_repo.complete(session, followup, outcome=outcome.value)
+        # Lost-stage handling — by convention every persona pipeline has
+        # a stage literally named "Lost" (see pipeline_service.PIPELINE_TEMPLATES).
+        lost_stage = get_stage_by_name_for_business(
+            session, current_user.business_id, "Lost"
+        )
+        if lost_stage is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No 'Lost' stage configured for this business",
+            )
+        old_stage_id = lead.stage_id
+        lead_repo.set_stage(session, lead, lost_stage.id)
+        activity_repo.add(
+            session,
+            lead_id=lead.id,
+            type=LeadActivityType.STATUS_CHANGE,
+            description="Stage moved to Lost",
+            followup_id=followup.id,
+            created_by=current_user.id,
+            payload=safe_jsonify({
+                "from_stage_id": old_stage_id,
+                "to_stage_id": lost_stage.id,
+                "to_stage_name": lost_stage.name,
+            }),
+        )
+        activities_created += 1
+        result_action = ResultAction.CLOSED
+
+    elif outcome in _WRONG_NUMBER:
+        followup_repo.complete(session, followup, outcome=outcome.value)
+        lead_repo.flag_phone(session, lead)
+        result_action = ResultAction.CLOSED
+
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unhandled outcome: {outcome}",
+        )
+
+    # --- 3. Primary activity row (always one). The `attempt` value is
+    # the followup's attempt_count AFTER the mutation above. `followup_title`
+    # snapshots lead.title — lead_followups has no title column, and the
+    # lead title is the stable string describing what the follow-up was for.
+    primary_payload = safe_jsonify({
+        "outcome": outcome.value,
+        "result_action": result_action.value,
+        "attempt": followup.attempt_count,
+        "followup_title": lead.title,
+        "channel": channel,
+    })
+    activity_repo.add(
+        session,
+        lead_id=lead.id,
+        type=activity_type,
+        description=_activity_description(channel, outcome, note),
+        followup_id=followup.id,
+        created_by=current_user.id,
+        payload=primary_payload,
+    )
+    activities_created += 1
+
+    # --- 4. One commit for the whole flow. ---
+    session.commit()
+    session.refresh(followup)
+    session.refresh(lead)
+    if next_followup is not None:
+        session.refresh(next_followup)
+
+    return {
+        "followup": followup,
+        "lead": lead,
+        "next_followup": next_followup,
+        "activities_created": activities_created,
+    }
