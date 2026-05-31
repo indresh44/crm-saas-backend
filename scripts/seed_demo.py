@@ -67,7 +67,7 @@ from app.services.invoice_service import InvoiceCreateWithItems, InvoiceData
 
 
 OWNER_EMAIL = "vikram@vikraminteriors.demo"
-OWNER_PASSWORD = "Demo@12345"
+OWNER_PASSWORD = "
 OWNER_NAME = "Vikram Sharma"
 OWNER_PHONE = "9829012345"
 BUSINESS_NAME = "Vikram Interiors"

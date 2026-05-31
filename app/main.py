@@ -30,6 +30,7 @@ from app.api.v1.whatsapp_messages import router as whatsapp_messages_router
 from app.api.v1.public_invoices import router as public_invoices_router
 from app.api.v1.onboarding import router as onboarding_router
 from app.api.v1.whatsapp_webhooks import router as whatsapp_webhooks_router
+from app.api.v1.whatsapp_webhook import router as wa_webhook_router
 from app.core.actor_context import set_actor_context
 from app.core.config import settings
 from app.models.enums import ActorType
@@ -112,6 +113,8 @@ app.include_router(whatsapp_accounts_router, prefix="/api/v1", tags=["whatsapp-a
 app.include_router(whatsapp_conversations_router, prefix="/api/v1", tags=["whatsapp-conversations"])
 app.include_router(whatsapp_messages_router, prefix="/api/v1", tags=["whatsapp-messages"])
 app.include_router(whatsapp_webhooks_router, prefix="/api/v1", tags=["whatsapp-webhooks"])
+# New Wa* webhook — mounted at root so the public URL is /webhook/whatsapp.
+app.include_router(wa_webhook_router, tags=["wa-webhook"])
 app.include_router(public_invoices_router, prefix="/api/public", tags=["public-invoices"])
 
 # --- TEST / DEBUG ONLY ----------------------------------------------------

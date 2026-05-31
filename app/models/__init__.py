@@ -61,6 +61,8 @@ from app.models.quote_item import QuoteItem, QuoteItemCreate, QuoteItemRead
 from app.models.refresh_token import RefreshToken, RefreshTokenRead
 from app.models.task import Task, TaskCreate, TaskRead
 from app.models.user import User, UserCreate, UserRead
+from app.models.wa_credential import WaCredential
+from app.models.wa_message import WaMessage
 from app.models.whatsapp_account import (
     WhatsAppAccount,
     WhatsAppAccountCreate,
@@ -181,6 +183,8 @@ __all__ = [
     "User",
     "UserCreate",
     "UserRead",
+    "WaCredential",
+    "WaMessage",
     "WhatsAppAccount",
     "WhatsAppAccountCreate",
     "WhatsAppAccountRead",
