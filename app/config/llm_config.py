@@ -12,6 +12,17 @@ class LLMSettings(BaseSettings):
         default="gemini/gemini-3-flash-preview",
         alias="LLM_SUMMARIZATION_MODEL",
     )
+    # Per-enquiry computed intelligence (requirement_summary, demand_tags,
+    # activity_summary). Verify exact LiteLLM model string vs Google docs —
+    # the listed default reflects the current cheapest Gemini flash-lite SKU.
+    summary_model: str = Field(
+        default="gemini/gemini-3.1-flash-lite",
+        alias="LLM_SUMMARY_MODEL",
+    )
+    summary_max_output_tokens: int = Field(
+        default=200,
+        alias="SUMMARY_MAX_OUTPUT_TOKENS",
+    )
     # Was 1500 — that capped agent answers mid-word on long listings
     # ("...Customer: Amit Patel * **Tim"). 8192 is a comfortable ceiling for
     # any reasonable single response and still bounds runaway generation.

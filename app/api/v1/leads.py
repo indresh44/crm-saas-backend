@@ -1,7 +1,7 @@
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlmodel import Session
 
 from app.core.database import get_session
@@ -31,10 +31,16 @@ router = APIRouter()
 @router.post("/leads", response_model=LeadRead)
 def create_lead(
     payload: LeadCreate,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> LeadRead:
-    lead = service_create_lead(session=session, current_user=current_user, data=payload)
+    lead = service_create_lead(
+        session=session,
+        current_user=current_user,
+        data=payload,
+        background_tasks=background_tasks,
+    )
     return lead
 
 
@@ -90,6 +96,7 @@ def get_lead_context(
 def update_lead(
     lead_id: UUID,
     payload: LeadUpdate,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> LeadRead:
@@ -98,6 +105,7 @@ def update_lead(
         current_user=current_user,
         lead_id=lead_id,
         data=payload,
+        background_tasks=background_tasks,
     )
     return lead
 

@@ -6,6 +6,12 @@ from app.models.booking import Booking, BookingCreate, BookingRead
 from app.models.business import Business, BusinessCreate, BusinessRead
 from app.models.catalog_item import CatalogItem, CatalogItemCreate, CatalogItemRead, CatalogItemUpdate
 from app.models.chat import ChatMessage, ChatThread
+from app.models.demand_tag import (
+    DemandTag,
+    DemandTagRead,
+    DemandTagSummary,
+    EnquiryDemandTag,
+)
 from app.models.customer import (
     Customer,
     CustomerCreate,
@@ -112,6 +118,10 @@ __all__ = [
     "CustomerRead",
     "CustomerSearchResponse",
     "CustomerUpdate",
+    "DemandTag",
+    "DemandTagRead",
+    "DemandTagSummary",
+    "EnquiryDemandTag",
     "Invoice",
     "InvoiceAdjustment",
     "InvoiceAdjustmentCreate",

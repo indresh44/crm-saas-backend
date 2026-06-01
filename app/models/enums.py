@@ -147,6 +147,15 @@ class ResultAction(str, Enum):
     MARKED_DONE = "marked_done"
 
 
+class DemandTagOrigin(str, Enum):
+    """Where a demand_tag came from. AI = produced by the per-enquiry
+    intelligence service; OWNER = curated/created by the business owner
+    via the UI (future)."""
+
+    AI = "ai"
+    OWNER = "owner"
+
+
 class CatalogItemUnit(str, Enum):
     """Common units. The 'custom' value lets owners type their own unit."""
 

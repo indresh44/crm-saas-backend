@@ -34,6 +34,9 @@ from app.repositories.lead_followup_repository import (
 )
 from app.repositories.lead_repository import create_lead_activity, get_lead_by_id
 from app.repositories.pipeline_repository import get_stage_by_name_for_business
+from app.services.enquiry_intelligence_service import (
+    fire_rebuild_activity_summary,
+)
 
 
 def _business_timezone(session: Session, business_id: UUID) -> str:
@@ -618,6 +621,15 @@ def resolve_followup(
     session.refresh(lead)
     if next_followup is not None:
         session.refresh(next_followup)
+
+    # 0045 — resolve_followup writes 1–2 activity rows via the no-commit
+    # `activity_repo.add()` helper, which bypasses the chokepoint trigger.
+    # Fire a single full-rebuild post-commit instead of N incrementals:
+    # the incremental path folds ONE new row, so multi-write flows would
+    # leave the middle row(s) unrepresented. The rebuild captures
+    # everything that just landed in one LLM call.
+    if activities_created > 0:
+        fire_rebuild_activity_summary(lead.id)
 
     return {
         "followup": followup,

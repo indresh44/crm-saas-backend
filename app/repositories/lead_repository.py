@@ -12,6 +12,7 @@ from app.models.enums import LeadActivityType
 from app.models.lead import Lead, LeadActivity, LeadRead
 from app.models.lead_followup import LeadFollowup
 from app.models.pipeline import Pipeline, PipelineStage
+from app.repositories.demand_tag_repository import get_demand_tags_by_lead_ids
 
 
 # Activity types that count as a "human touch" for the GONE_QUIET cascade
@@ -105,6 +106,15 @@ def list_leads_for_business(
         lead_read.stage_color = stage_color
         results.append(lead_read)
 
+    # 0045 — one bulk SELECT for demand_tags across the whole page. Cheap
+    # join, stable ordering by tag name. Attached after the main loop so
+    # `model_validate` (which doesn't see the M2M) doesn't drop them.
+    tags_by_lead = get_demand_tags_by_lead_ids(
+        session, [r.id for r in results],
+    )
+    for lead_read in results:
+        lead_read.demand_tags = tags_by_lead.get(lead_read.id, [])
+
     return results
 
 
@@ -197,6 +207,24 @@ def create_lead_activity(session: Session, activity: LeadActivity) -> LeadActivi
     session.add(activity)
     session.commit()
     session.refresh(activity)
+
+    # 0045 — every committed activity row feeds the incremental
+    # activity_summary path. Spawned as a daemon thread (fire-and-forget)
+    # so the chokepoint can serve callers that don't carry a
+    # FastAPI BackgroundTasks (e.g. the WhatsApp webhook, scheduled jobs,
+    # follow-up resolution). The watermark check inside the service makes
+    # this idempotent and safe to race against route-level rebuilds.
+    try:
+        from app.services.enquiry_intelligence_service import (
+            fire_update_activity_summary,
+        )
+
+        fire_update_activity_summary(activity.lead_id, activity.id)
+    except Exception:  # noqa: BLE001 — best-effort, never break the write
+        # Import-time failure or daemon-spawn failure must not poison the
+        # primary commit. The intelligence layer is advisory data.
+        pass
+
     return activity
 
 
@@ -250,6 +278,10 @@ def get_lead_read_by_id(
     lead_read.customer_phone = customer_phone
     lead_read.stage_name = stage_name
     lead_read.stage_color = stage_color
+    # 0045 — attach demand_tags. Same shape as the list path.
+    lead_read.demand_tags = get_demand_tags_by_lead_ids(
+        session, [lead.id],
+    ).get(lead.id, [])
     return lead_read
 
 

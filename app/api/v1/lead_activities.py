@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from pydantic import BaseModel
 from sqlmodel import Session
 
@@ -43,6 +43,7 @@ def update_lead_activity(
     lead_id: UUID,
     activity_id: UUID,
     payload: LeadActivityUpdate,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ) -> LeadActivityRead:
@@ -52,6 +53,7 @@ def update_lead_activity(
         lead_id=lead_id,
         activity_id=activity_id,
         data=payload,
+        background_tasks=background_tasks,
     )
     return activity
 

@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field, SQLModel
 
 from app.models.common import CreatedAtMixin, UUIDPrimaryKeyMixin, UpdatedAtMixin
+from app.models.demand_tag import DemandTagSummary
 from app.models.enums import ActorType, LeadActivityType, LeadSource
 
 
@@ -103,6 +104,14 @@ class LeadRead(LeadBase):
     created_at: CreatedAtMixin.__annotations__["created_at"]
     updated_at: UpdatedAtMixin.__annotations__["updated_at"]
     next_action: Optional[NextActionSummary] = None
+    # 0045 — per-enquiry computed intelligence. The two summaries are
+    # static text produced by the background LLM jobs (absolute dates,
+    # no relative time). `demand_tags` is the list of normalised
+    # lowercase phrases this enquiry was tagged with; the UI Title Cases
+    # for display without touching storage.
+    requirement_summary: Optional[str] = None
+    activity_summary: Optional[str] = None
+    demand_tags: list[DemandTagSummary] = []
 
 
 class LeadUpdate(SQLModel):
@@ -147,6 +156,24 @@ class Lead(LeadBase, UUIDPrimaryKeyMixin, CreatedAtMixin, UpdatedAtMixin, table=
         nullable=False,
         sa_column_kwargs={"server_default": sa_text("false")},
     )
+
+    # 0045 — per-enquiry computed intelligence. Stored summaries are STATIC
+    # text: absolute dates only, never relative ("9 days ago"). All three
+    # mutations happen off the request path via FastAPI BackgroundTasks.
+    # `last_activity_id_summarized` is the watermark for the incremental
+    # activity_summary path — equal to the latest activity_id already
+    # folded into activity_summary. Edits/deletes force a full rebuild and
+    # reset this to the latest current row.
+    requirement_summary: Optional[str] = Field(default=None, nullable=True)
+    activity_summary: Optional[str] = Field(default=None, nullable=True)
+    last_activity_id_summarized: Optional[uuid.UUID] = Field(
+        default=None,
+        sa_column=Column(
+            ForeignKey("lead_activities.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
+    summary_updated_at: Optional[datetime] = Field(default=None, nullable=True)
 
 
 class LeadActivityFields(SQLModel):

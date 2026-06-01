@@ -40,6 +40,16 @@ def add(
     `lead_repository.create_lead_activity` — see the comment there for
     the contract. `chat_session_id` / `task_id` are stamped from the
     ambient ActorContext; the caller does not pass them.
+
+    IMPORTANT (0045): unlike the commit-per-call chokepoint, this helper
+    does NOT fire the per-enquiry activity_summary trigger — it can't,
+    because it doesn't own the commit. Callers that use this for
+    multi-write atomic flows must call
+    `enquiry_intelligence_service.fire_rebuild_activity_summary(lead_id)`
+    once AFTER their session.commit() (one rebuild covers all rows
+    written in the transaction). The incremental path is wrong for
+    multi-write flows — it can only fold one row, leaving the others
+    unrepresented in the rolling summary.
     """
     # Local import to avoid a circular import at module load time.
     from app.core.actor_context import current_actor, warn_if_default_on_write

@@ -1,8 +1,8 @@
 from datetime import datetime, time, timedelta, timezone
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID
 
-from fastapi import HTTPException, status
+from fastapi import BackgroundTasks, HTTPException, status
 from sqlmodel import Session, select
 
 from app.core.json_safe import safe_jsonify
@@ -37,6 +37,10 @@ from app.repositories.lead_repository import (
     move_lead_stage as repo_move_lead_stage,
     update_lead as repo_update_lead,
 )
+from app.services.enquiry_intelligence_service import (
+    enqueue_compute_requirement,
+    enqueue_on_enquiry_created,
+)
 from app.services.lead_next_action_service import compute_next_actions_bulk
 
 
@@ -47,7 +51,12 @@ def _business_timezone(session: Session, business_id: UUID) -> str:
     return business.timezone or "Asia/Kolkata"
 
 
-def create_lead(session: Session, current_user: User, data: LeadCreate) -> Lead:
+def create_lead(
+    session: Session,
+    current_user: User,
+    data: LeadCreate,
+    background_tasks: Optional[BackgroundTasks] = None,
+) -> Lead:
     lead_data = data.model_dump()
     lead_data["business_id"] = current_user.business_id
 
@@ -85,6 +94,16 @@ def create_lead(session: Session, current_user: User, data: LeadCreate) -> Lead:
             }),
         ),
     )
+
+    # 0045 — kick off the per-enquiry intelligence build. Background work,
+    # not on the critical path. Computes requirement_summary + demand_tags
+    # AND seeds activity_summary from the LEAD_CREATED row that was just
+    # written. The chokepoint trigger inside create_lead_activity also
+    # fires an incremental update for the LEAD_CREATED row; the rebuild
+    # will catch up either way (see the chokepoint comment for the
+    # ordering / watermark argument).
+    if background_tasks is not None:
+        background_tasks.add_task(enqueue_on_enquiry_created, lead.id)
     return lead
 
 
@@ -261,6 +280,7 @@ def update_lead(
     current_user: User,
     lead_id: UUID,
     data: LeadUpdate,
+    background_tasks: Optional[BackgroundTasks] = None,
 ) -> Lead:
     lead = get_lead(session, current_user, lead_id)
 
@@ -307,6 +327,16 @@ def update_lead(
             payload=safe_jsonify({"changed": changed}),
         ),
     )
+
+    # 0045 — if the customer-facing scope fields changed (title / notes),
+    # the requirement_summary + demand_tags need to be recomputed.
+    # Skip the LLM round-trip when only operational fields moved
+    # (follow_up_at, estimated_value, source, service_date, assigned_to).
+    if background_tasks is not None and (
+        "title" in changed or "notes" in changed
+    ):
+        background_tasks.add_task(enqueue_compute_requirement, lead.id)
+
     return lead
 
 
