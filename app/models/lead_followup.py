@@ -55,6 +55,10 @@ class LeadFollowupRead(LeadFollowupBase):
     completed_at: Optional[datetime] = None
     attempt_count: int = 0
     last_outcome: Optional[str] = None
+    # Derived (not a column): per-type tally of the current consecutive
+    # retry-negative streak — {no_answer, busy, wa_not_replied, total}.
+    # Populated by the service / dashboard layer; None when not computed.
+    negative_attempts: Optional[dict[str, int]] = None
 
 
 class LeadFollowupTodayRead(LeadFollowupRead):

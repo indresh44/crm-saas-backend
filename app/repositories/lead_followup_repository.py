@@ -228,16 +228,21 @@ def reschedule(
     *,
     new_dt: datetime,
     outcome: str,
+    note: str | None = None,
 ) -> LeadFollowup:
     """Move scheduled_at forward, bump attempt_count, stay pending.
 
-    Used for no-contact outcomes (no_answer, busy, wa_no_number). The
-    outcome string is stored on `last_outcome` so the dashboard can show
-    "last attempt: busy" without joining lead_activities.
+    Used for retry outcomes (no_answer, busy, wa_not_replied). The outcome
+    string is stored on `last_outcome` so the dashboard can show "last
+    attempt: busy" without joining lead_activities. When `note` is supplied
+    (the sheet's "Regarding…" field) it updates the follow-up's topic; the
+    activity note is kept separate by the caller.
     """
     followup.scheduled_at = new_dt
     followup.attempt_count = (followup.attempt_count or 0) + 1
     followup.last_outcome = outcome
+    if note is not None and note.strip():
+        followup.note = note.strip()
     # status stays pending; completed_at stays NULL.
     session.add(followup)
     session.flush()
@@ -250,24 +255,18 @@ def create_next(
     lead_id: UUID,
     scheduled_dt: datetime,
     created_by: UUID,
-    followup_type: str | None = None,
     note: str | None = None,
 ) -> LeadFollowup:
     """Insert a fresh pending follow-up. attempt_count starts at 0.
 
-    `followup_type` has no column today — when supplied, it is prefixed
-    into `note` ("call: …") for visibility on the followups list. Stored
-    typed in the activity payload by the service caller.
+    `note` is the follow-up's topic (the sheet's "Regarding…" field). The
+    channel is recorded in the activity payload by the caller, not here, so
+    the topic stays clean.
     """
-    combined_note = note
-    if followup_type:
-        prefix = f"[{followup_type}]"
-        combined_note = f"{prefix} {note}" if note else prefix
-
     followup = LeadFollowup(
         lead_id=lead_id,
         scheduled_at=scheduled_dt,
-        note=combined_note,
+        note=(note.strip() if note and note.strip() else None),
         created_by=created_by,
         status=FollowupStatus.PENDING,
         attempt_count=0,

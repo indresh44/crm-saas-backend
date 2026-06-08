@@ -103,3 +103,43 @@ def list_for_lead(
     if before is not None:
         statement = statement.where(LeadActivity.created_at < before)
     return list(session.exec(statement).all())
+
+
+# Retry outcomes that feed the negative-attempt tally. Kept as plain strings
+# (not the Outcome enum) to avoid a circular import with the service layer —
+# matches `lead_followup_service._RETRY`.
+_RETRY_OUTCOMES: tuple[str, ...] = ("no_answer", "busy", "wa_not_replied")
+
+
+def negative_attempt_breakdown(
+    session: Session, followup_id: UUID
+) -> dict[str, int]:
+    """Per-type tally of the CURRENT consecutive retry-negative streak, scoped
+    to a single follow-up.
+
+    Walks the call/whatsapp activities tied to THIS follow-up (via
+    `lead_activities.followup_id`) newest-first and counts retry outcomes
+    (no_answer / busy / wa_not_replied) until the first non-retry outcome — a
+    positive / awaiting / terminal resolve writes a non-retry row that ends the
+    streak (and completes the follow-up, so a fresh cycle starts on the next
+    follow-up). Returns `{no_answer, busy, wa_not_replied, total}`.
+    """
+    breakdown = {key: 0 for key in _RETRY_OUTCOMES}
+    statement = (
+        select(LeadActivity)
+        .where(
+            LeadActivity.followup_id == followup_id,
+            LeadActivity.type.in_(
+                [LeadActivityType.CALL, LeadActivityType.WHATSAPP]
+            ),
+        )
+        .order_by(LeadActivity.created_at.desc())
+    )
+    for activity in session.exec(statement):
+        outcome = (activity.payload or {}).get("outcome")
+        if outcome in breakdown:
+            breakdown[outcome] += 1
+        else:
+            break  # first non-retry contact ends the streak
+    breakdown["total"] = sum(breakdown[key] for key in _RETRY_OUTCOMES)
+    return breakdown

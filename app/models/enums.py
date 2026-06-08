@@ -126,12 +126,16 @@ class Outcome(str, Enum):
 
     NO_ANSWER = "no_answer"
     BUSY = "busy"
-    WRONG_NUMBER = "wrong_number"
     SPOKE_INTERESTED = "spoke_interested"
     SPOKE_LATER = "spoke_later"
     SPOKE_NOT_INTERESTED = "spoke_not_interested"
     WA_SENT = "wa_sent"
     WA_REPLIED = "wa_replied"
+    WA_NOT_REPLIED = "wa_not_replied"
+    WA_NOT_INTERESTED = "wa_not_interested"
+    # --- Deprecated (no new writes). Kept so historical lead_activities.payload
+    # values still parse via Outcome(...). Removed from all live buckets + UI. ---
+    WRONG_NUMBER = "wrong_number"
     WA_LATER = "wa_later"
     WA_NO_NUMBER = "wa_no_number"
 
@@ -145,6 +149,10 @@ class ResultAction(str, Enum):
     NEXT_FOLLOWUP = "next_followup"
     CLOSED = "closed"
     MARKED_DONE = "marked_done"
+    # Retry outcome logged WITHOUT touching the follow-up — it stays pending
+    # on its date so the owner can come back to it. Tally still increments
+    # (derived from the activity row).
+    LOGGED = "logged"
 
 
 class DemandTagOrigin(str, Enum):

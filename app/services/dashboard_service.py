@@ -25,6 +25,7 @@ from app.repositories.dashboard_repository import (
     fetch_monthly_collections,
     fetch_outstanding_and_overdue,
 )
+from app.repositories.lead_activity_repository import negative_attempt_breakdown
 from app.repositories.lead_followup_repository import (
     get_open_followups_for_lead_ids,
 )
@@ -133,14 +134,22 @@ def get_leads_needing_action(
     enriched_items: list[LeadNeedingActionRead] = []
     for lead in capped_items:
         open_followup = open_followups_by_lead.get(lead.id)
+        open_followup_read = None
+        if open_followup is not None:
+            open_followup_read = LeadFollowupRead.model_validate(
+                open_followup, from_attributes=True
+            )
+            # Stitch the derived retry tally so the card renders the
+            # per-type attempt chips without a second round-trip. Scoped to
+            # the open follow-up. One query per lead — the top-N pool is
+            # small (≤ limit).
+            open_followup_read.negative_attempts = negative_attempt_breakdown(
+                session, open_followup.id
+            )
         enriched_items.append(
             LeadNeedingActionRead(
                 **lead.model_dump(),
-                open_followup=(
-                    LeadFollowupRead.model_validate(open_followup, from_attributes=True)
-                    if open_followup is not None
-                    else None
-                ),
+                open_followup=open_followup_read,
             )
         )
 

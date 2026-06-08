@@ -141,6 +141,9 @@ class FollowupResolveRequest(BaseModel):
     outcome: Outcome
     note: Optional[str] = None
     next_dt: Optional[datetime] = None
+    # Topic for the next/rescheduled follow-up (the sheet's "Regarding…"
+    # field). Distinct from `note`, which is written to the activity log only.
+    next_regarding: Optional[str] = None
     stage_to: Optional[str] = None
     set_no_followup: bool = False
 
@@ -170,11 +173,19 @@ def resolve_lead_followup(
         outcome=payload.outcome,
         note=payload.note,
         next_dt=payload.next_dt,
+        next_regarding=payload.next_regarding,
         stage_to=payload.stage_to,
         set_no_followup=payload.set_no_followup,
     )
+    # Attach the derived retry tally onto the resolved follow-up read so the
+    # card/header update without a second fetch. (Not an ORM column, so set it
+    # on the validated read model rather than relying on from_attributes.)
+    followup_read = LeadFollowupRead.model_validate(
+        result["followup"], from_attributes=True
+    )
+    followup_read.negative_attempts = result.get("negative_attempts")
     return FollowupResolveResponse(
-        followup=result["followup"],
+        followup=followup_read,
         lead=result["lead"],
         next_followup=result["next_followup"],
         activities_created=result["activities_created"],
