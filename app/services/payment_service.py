@@ -6,6 +6,7 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
+from app.core.json_safe import safe_jsonify
 from app.models.enums import InvoiceStatus, LeadActivityType
 from app.models.invoice import Invoice
 from app.models.lead import Lead, LeadActivity
@@ -80,6 +81,7 @@ def _log_lead_activity(
     activity_type: LeadActivityType,
     description: str,
     user_id: UUID,
+    payload: dict | None = None,
 ) -> None:
     create_lead_activity(
         session,
@@ -88,6 +90,7 @@ def _log_lead_activity(
             type=activity_type,
             description=description,
             created_by=user_id,
+            payload=safe_jsonify(payload) if payload is not None else None,
         ),
     )
 
@@ -129,6 +132,13 @@ def create_payment(
             activity_type=LeadActivityType.PAYMENT_RECORDED,
             description=f"Payment of ₹{payment.amount:,.2f} recorded for {invoice.invoice_number}",
             user_id=current_user.id,
+            payload={
+                "payment_id": payment.id,
+                "invoice_id": invoice.id,
+                "invoice_number": invoice.invoice_number,
+                "amount": payment.amount,
+                "method": payment.payment_method.value if hasattr(payment.payment_method, "value") else payment.payment_method,
+            },
         )
 
     return payment
@@ -163,16 +173,25 @@ def update_payment_metadata(
         )
 
     changes: list[str] = []
+    changed_fields: dict[str, dict[str, Any]] = {}
     if data.payment_date is not None and data.payment_date != payment.payment_date:
         changes.append(f"date {payment.payment_date.isoformat()} → {data.payment_date.isoformat()}")
+        changed_fields["payment_date"] = {
+            "old": payment.payment_date, "new": data.payment_date,
+        }
         payment.payment_date = data.payment_date
     if data.payment_method is not None and data.payment_method != payment.payment_method:
         changes.append(f"method {payment.payment_method.value} → {data.payment_method.value}")
+        changed_fields["payment_method"] = {
+            "old": payment.payment_method.value,
+            "new": data.payment_method.value,
+        }
         payment.payment_method = data.payment_method
     if data.reference is not None and (data.reference or None) != payment.reference:
         new_ref = data.reference.strip() if isinstance(data.reference, str) else data.reference
         new_ref = new_ref or None
         changes.append(f"reference '{payment.reference or ''}' → '{new_ref or ''}'")
+        changed_fields["reference"] = {"old": payment.reference, "new": new_ref}
         payment.reference = new_ref
 
     if not changes:
@@ -193,6 +212,12 @@ def update_payment_metadata(
                 f"({'; '.join(changes)})"
             ),
             user_id=current_user.id,
+            payload={
+                "payment_id": payment.id,
+                "invoice_id": invoice.id,
+                "invoice_number": invoice.invoice_number,
+                "changed": changed_fields,
+            },
         )
 
     return payment
@@ -283,6 +308,16 @@ def update_payment_amount(
                 + (f" — {data.reason.strip()}" if data.reason and data.reason.strip() else "")
             ),
             user_id=current_user.id,
+            payload={
+                # void+replace lineage: old payment voided, new minted
+                "old_payment_id": old.id,
+                "new_payment_id": replacement.id,
+                "invoice_id": invoice.id,
+                "invoice_number": invoice.invoice_number,
+                "old_amount": old_amount,
+                "new_amount": new_amount,
+                "reason": data.reason.strip() if data.reason and data.reason.strip() else None,
+            },
         )
 
     return replacement
@@ -389,6 +424,14 @@ def move_payment_to_invoice(
         f"Payment of ₹{move_amount:,.2f} moved from "
         f"{source_invoice.invoice_number} to {target_invoice.invoice_number}"
     )
+    move_payload = {
+        "payment_id": replacement.id,
+        "from_invoice_id": source_invoice.id,
+        "from_invoice_number": source_invoice.invoice_number,
+        "to_invoice_id": target_invoice.id,
+        "to_invoice_number": target_invoice.invoice_number,
+        "amount": move_amount,
+    }
     if source_invoice.lead_id is not None:
         _log_lead_activity(
             session,
@@ -396,6 +439,7 @@ def move_payment_to_invoice(
             activity_type=LeadActivityType.PAYMENT_MOVED,
             description=description,
             user_id=current_user.id,
+            payload=move_payload,
         )
     if (
         target_invoice.lead_id is not None
@@ -407,6 +451,7 @@ def move_payment_to_invoice(
             activity_type=LeadActivityType.PAYMENT_MOVED,
             description=description,
             user_id=current_user.id,
+            payload=move_payload,
         )
 
     return replacement
@@ -458,6 +503,13 @@ def void_payment(
                 + (f" — {payment.voided_reason}" if payment.voided_reason else "")
             ),
             user_id=current_user.id,
+            payload={
+                "payment_id": payment.id,
+                "invoice_id": invoice.id,
+                "invoice_number": invoice.invoice_number,
+                "amount": payment.amount,
+                "reason": payment.voided_reason,
+            },
         )
 
     return payment

@@ -26,11 +26,30 @@ class LeadActivityType(str, Enum):
     FOLLOWUP_COMPLETED = "followup_completed"
     FOLLOWUP_CANCELLED = "followup_cancelled"
     INVOICE_CREATED = "invoice_created"
+    INVOICE_SENT = "invoice_sent"              # new (DRAFT→SENT transition)
     INVOICE_APPROVED = "invoice_approved"
+    INVOICE_CANCELLED = "invoice_cancelled"    # new
+    INVOICE_ADJUSTED = "invoice_adjusted"      # new
     PAYMENT_RECORDED = "payment_recorded"
     PAYMENT_EDITED = "payment_edited"
     PAYMENT_VOIDED = "payment_voided"
     PAYMENT_MOVED = "payment_moved"
+    LEAD_CREATED = "lead_created"              # new (lifecycle start)
+    LEAD_UPDATED = "lead_updated"              # new (field edits)
+
+
+class ActorType(str, Enum):
+    """Who/what produced an activity row. Distinct from `created_by` (which is
+    the user id, if any). The diary uses this to filter "what the AI did" vs
+    "what the owner did" vs "what the system observed."
+      * HUMAN  — owner via the UI / a direct HTTP route
+      * AI     — write-surface capability invoked through the agent loop
+      * TASK   — same as AI but spawned by the multi-task runner; carries task id
+      * SYSTEM — webhook (incoming WhatsApp), auto-recompute, scheduled jobs"""
+    HUMAN = "human"
+    AI = "ai"
+    TASK = "task"
+    SYSTEM = "system"
 
 
 class QuoteStatus(str, Enum):
@@ -89,6 +108,60 @@ class TaskStatus(str, Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     DONE = "done"
+
+
+class FollowupStatus(str, Enum):
+    """Real Postgres enum — stored on lead_followups.status (DB type
+    `followup_status`)."""
+
+    PENDING = "pending"
+    DONE = "done"
+    CANCELLED = "cancelled"
+
+
+class Outcome(str, Enum):
+    """App-side only. Lives in lead_activities.payload JSON, NOT a DB enum —
+    keep additions cheap. Covers the two channels we currently log outcomes
+    for (call + WhatsApp). Keep in sync with the resolve-followup UI."""
+
+    NO_ANSWER = "no_answer"
+    BUSY = "busy"
+    SPOKE_INTERESTED = "spoke_interested"
+    SPOKE_LATER = "spoke_later"
+    SPOKE_NOT_INTERESTED = "spoke_not_interested"
+    WA_SENT = "wa_sent"
+    WA_REPLIED = "wa_replied"
+    WA_NOT_REPLIED = "wa_not_replied"
+    WA_NOT_INTERESTED = "wa_not_interested"
+    # --- Deprecated (no new writes). Kept so historical lead_activities.payload
+    # values still parse via Outcome(...). Removed from all live buckets + UI. ---
+    WRONG_NUMBER = "wrong_number"
+    WA_LATER = "wa_later"
+    WA_NO_NUMBER = "wa_no_number"
+
+
+class ResultAction(str, Enum):
+    """App-side only. The post-outcome disposition picked in the resolve
+    flow — what the user chose to do with the follow-up after logging the
+    outcome. Stored in lead_activities.payload."""
+
+    RESCHEDULED = "rescheduled"
+    NEXT_FOLLOWUP = "next_followup"
+    CLOSED = "closed"
+    MARKED_DONE = "marked_done"
+    # Retry outcome logged WITHOUT touching the follow-up — it stays pending
+    # on its date so the owner can come back to it. Tally still increments
+    # (derived from the activity row).
+    LOGGED = "logged"
+
+
+class DemandTagOrigin(str, Enum):
+    """Where a demand_tag came from. AI = produced by the per-enquiry
+    intelligence service; OWNER = curated/created by the business owner
+    via the UI (future)."""
+
+    AI = "ai"
+    OWNER = "owner"
 
 
 class CatalogItemUnit(str, Enum):

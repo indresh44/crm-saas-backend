@@ -19,7 +19,7 @@ from app.models.user import User
 from app.repositories.business_repository import get_business_by_id, increment_invoice_sequence
 from app.repositories.booking_repository import create_booking as repo_create_booking
 from app.repositories.invoice_repository import get_invoice_by_quote_id
-from app.repositories.lead_repository import get_lead_by_id
+from app.repositories.lead_repository import create_lead_activity, get_lead_by_id
 from app.repositories.quote_repository import (
     create_quote as repo_create_quote,
     get_quote_by_id,
@@ -294,13 +294,17 @@ def convert_quote_to_invoice(
         quote.status = QuoteStatus.ACCEPTED
         session.add(quote)
 
+    # Was a direct session.add bypass; brought onto the central chokepoint
+    # so this activity gets actor_type stamped from context like every other.
+    # NOTE-typed; payload stays NULL per the user-logged-type convention
+    # (the prose carries the content).
     activity = LeadActivity(
         lead_id=lead.id,
         type=LeadActivityType.NOTE,
         description=f"Invoice {invoice.invoice_number} created from Quote {quote.id}",
         created_by=current_user.id,
     )
-    session.add(activity)
+    create_lead_activity(session, activity)
 
     session.commit()
     session.refresh(invoice)

@@ -9,7 +9,10 @@ from uuid import UUID
 from fastapi import HTTPException, status
 from sqlmodel import Session
 
-from app.models.enums import InvoiceStatus
+from app.core.json_safe import safe_jsonify
+from app.models.enums import InvoiceStatus, LeadActivityType
+from app.models.lead import LeadActivity
+from app.repositories.lead_repository import create_lead_activity
 from app.models.invoice_adjustment import (
     InvoiceAdjustment,
     InvoiceAdjustmentCreate,
@@ -87,17 +90,39 @@ def add_adjustment(
             ),
         )
 
+    cleaned_reason = (data.reason or "").strip() or None
     record = InvoiceAdjustment(
         invoice_id=invoice_id,
         amount=data.amount,
         adjustment_type=data.adjustment_type.value,
-        reason=(data.reason or "").strip() or None,
+        reason=cleaned_reason,
         created_by=current_user.id,
     )
     record = repo_create_adjustment(session, record)
 
     clear_invoice_pdf(session, invoice)
     recompute_invoice_status(session, invoice)
+
+    # Diary event. Conditional on lead linkage, same convention as every
+    # other invoice activity (an invoice with no lead has no diary surface).
+    if invoice.lead_id is not None:
+        create_lead_activity(session, LeadActivity(
+            lead_id=invoice.lead_id,
+            type=LeadActivityType.INVOICE_ADJUSTED,
+            description=(
+                f"Adjustment on {invoice.invoice_number}: "
+                f"{record.adjustment_type} ₹{record.amount:,.2f}"
+                + (f" — {cleaned_reason}" if cleaned_reason else "")
+            ),
+            created_by=current_user.id,
+            payload=safe_jsonify({
+                "invoice_id": invoice.id,
+                "invoice_number": invoice.invoice_number,
+                "adjustment_type": record.adjustment_type,
+                "amount": record.amount,
+                "reason": cleaned_reason,
+            }),
+        ))
 
     return record
 

@@ -23,7 +23,7 @@ _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(_BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(_BACKEND_ROOT))
 
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlmodel import Session, select
 
 from app.core.database import engine
@@ -119,29 +119,22 @@ def wipe_existing(session: Session) -> None:
     _log(f"wiping existing business {business_id}")
 
     # Collect IDs we need for cascading deletes.
-    lead_ids = [
-        lid for (lid,) in session.exec(
-            select(Lead.id).where(Lead.business_id == business_id)
-        ).all()
-    ]
-    invoice_ids = [
-        iid for (iid,) in session.exec(
-            select(Invoice.id).where(Invoice.business_id == business_id)
-        ).all()
-    ]
-    thread_ids = [
-        tid for (tid,) in session.exec(
-            select(ChatThread.id).where(ChatThread.business_id == business_id)
-        ).all()
-    ]
+    # NOTE: session.exec(select(Model.id)) yields scalar UUIDs, not 1-tuples.
+    lead_ids = list(session.exec(
+        select(Lead.id).where(Lead.business_id == business_id)
+    ).all())
+    invoice_ids = list(session.exec(
+        select(Invoice.id).where(Invoice.business_id == business_id)
+    ).all())
+    thread_ids = list(session.exec(
+        select(ChatThread.id).where(ChatThread.business_id == business_id)
+    ).all())
     pipeline = session.exec(
         select(Pipeline).where(Pipeline.business_id == business_id)
     ).first()
-    user_ids = [
-        uid for (uid,) in session.exec(
-            select(User.id).where(User.business_id == business_id)
-        ).all()
-    ]
+    user_ids = list(session.exec(
+        select(User.id).where(User.business_id == business_id)
+    ).all())
 
     # Delete order respects FK constraints.
     if thread_ids:
@@ -170,6 +163,11 @@ def wipe_existing(session: Session) -> None:
     if user_ids:
         session.execute(delete(RefreshToken).where(RefreshToken.user_id.in_(user_ids)))
         session.execute(delete(AuthIdentity).where(AuthIdentity.user_id.in_(user_ids)))
+    # Break the businesses<->users FK cycle: drop the owner reference before
+    # deleting users, otherwise fk_businesses_owner_user_id_users blocks the delete.
+    session.execute(
+        update(Business).where(Business.id == business_id).values(owner_user_id=None)
+    )
     session.execute(delete(User).where(User.business_id == business_id))
     session.execute(delete(Business).where(Business.id == business_id))
     session.commit()

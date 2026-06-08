@@ -48,6 +48,11 @@ class LLMResponse(BaseModel):
     stop_reason: str
     input_tokens: int = 0
     output_tokens: int = 0
+    # New: cached portion of input_tokens. Populated for Gemini (and any
+    # provider LiteLLM normalises a cache count for); 0 elsewhere. This is a
+    # SUBSET of input_tokens — the provider reports the cached portion as
+    # part of the prompt-token total but discounts it for billing.
+    cached_tokens: int = 0
     model: str
     total_rounds: int = 1
     llm_call_metrics: list[LLMCallMetric] | None = None
@@ -94,9 +99,11 @@ class LLMService:
         latency_ms = int((time.perf_counter() - start) * 1000)
         llm_response = self._parse_response(response, fallback_model=request_model)
         logger.info(
-            "LLM call completed model=%s input_tokens=%s output_tokens=%s latency_ms=%s stop_reason=%s",
+            "LLM call completed model=%s input_tokens=%s cached_tokens=%s "
+            "output_tokens=%s latency_ms=%s stop_reason=%s",
             llm_response.model,
             llm_response.input_tokens,
+            llm_response.cached_tokens,
             llm_response.output_tokens,
             latency_ms,
             llm_response.stop_reason,
@@ -225,8 +232,45 @@ class LLMService:
             stop_reason=stop_reason,
             input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
             output_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+            cached_tokens=self._extract_cached_tokens(usage),
             model=str(getattr(response, "model", fallback_model) or fallback_model),
         )
+
+    def _extract_cached_tokens(self, usage: Any) -> int:
+        """Pull the cached-input-token count from the provider's usage object.
+
+        LiteLLM 1.83.0 normalises Gemini's `cachedContentTokenCount` onto the
+        usage object, but the surfaced field name has drifted across versions
+        and providers. We try the modern flat field first, then the nested
+        details object, then bail to 0. Never raises; an unparseable field is
+        the same as "no cache info" for accounting purposes."""
+        if usage is None:
+            return 0
+        # Modern LiteLLM normalised field.
+        flat = getattr(usage, "cached_tokens", None)
+        if flat:
+            try:
+                return int(flat)
+            except (TypeError, ValueError):
+                pass
+        # Nested OpenAI/Gemini-style prompt-token-details object.
+        details = getattr(usage, "prompt_tokens_details", None)
+        if details is not None:
+            nested = getattr(details, "cached_tokens", None)
+            if nested:
+                try:
+                    return int(nested)
+                except (TypeError, ValueError):
+                    pass
+            # Some LiteLLM versions stash the count as a dict instead.
+            if isinstance(details, dict):
+                v = details.get("cached_tokens")
+                if v:
+                    try:
+                        return int(v)
+                    except (TypeError, ValueError):
+                        pass
+        return 0
 
     def _parse_json_arguments(self, arguments: Any) -> dict[str, Any]:
         if isinstance(arguments, dict):

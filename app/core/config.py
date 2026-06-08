@@ -28,6 +28,18 @@ class Settings(BaseSettings):
     EMAIL_FROM_ADDRESS: str = "noreply@sellnsettle.com"
     EMAIL_FROM_NAME: str = "SellNSettle"
 
+    # WhatsApp Cloud API webhook (new Wa* system — separate from the legacy
+    # whatsapp_accounts/whatsapp_webhook_verify_token plumbing). WA_VERIFY_TOKEN
+    # is echoed back to Meta during the GET handshake; WA_APP_SECRET is used to
+    # HMAC-SHA256 verify the X-Hub-Signature-256 header on POST deliveries.
+    WA_VERIFY_TOKEN: str = ""
+    WA_APP_SECRET: str = ""
+    # urlsafe base64-encoded 32-byte Fernet key. Generate with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Used to encrypt/decrypt WaCredential.access_token_enc. Never log the
+    # plaintext token or this key.
+    WA_TOKEN_ENCRYPTION_KEY: str = ""
+
     # Admin panel (local-only). Both flags must be set for admin endpoints
     # to be registered. In production neither is set, so /api/admin/* returns
     # 404 even with a valid JWT — the routes literally don't exist.

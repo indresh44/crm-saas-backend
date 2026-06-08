@@ -6,6 +6,12 @@ from app.models.booking import Booking, BookingCreate, BookingRead
 from app.models.business import Business, BusinessCreate, BusinessRead
 from app.models.catalog_item import CatalogItem, CatalogItemCreate, CatalogItemRead, CatalogItemUpdate
 from app.models.chat import ChatMessage, ChatThread
+from app.models.demand_tag import (
+    DemandTag,
+    DemandTagRead,
+    DemandTagSummary,
+    EnquiryDemandTag,
+)
 from app.models.customer import (
     Customer,
     CustomerCreate,
@@ -45,6 +51,9 @@ from app.models.meeting import Meeting, MeetingCreate, MeetingRead, MeetingUpdat
 from app.models.notification import Notification, NotificationCreate, NotificationRead
 from app.models.password_reset_token import PasswordResetToken
 from app.models.payment import Payment, PaymentCreate, PaymentRead
+from app.models.agent_chat import AgentChatMessage, AgentChatSession
+from app.models.agent_task import AgentTask, TaskStatus
+from app.models.prepared_action import PreparedAction, STATUS_PENDING, STATUS_CONSUMED
 from app.models.pipeline import (
     Pipeline,
     PipelineCreate,
@@ -58,6 +67,8 @@ from app.models.quote_item import QuoteItem, QuoteItemCreate, QuoteItemRead
 from app.models.refresh_token import RefreshToken, RefreshTokenRead
 from app.models.task import Task, TaskCreate, TaskRead
 from app.models.user import User, UserCreate, UserRead
+from app.models.wa_credential import WaCredential
+from app.models.wa_message import WaMessage
 from app.models.whatsapp_account import (
     WhatsAppAccount,
     WhatsAppAccountCreate,
@@ -107,6 +118,10 @@ __all__ = [
     "CustomerRead",
     "CustomerSearchResponse",
     "CustomerUpdate",
+    "DemandTag",
+    "DemandTagRead",
+    "DemandTagSummary",
+    "EnquiryDemandTag",
     "Invoice",
     "InvoiceAdjustment",
     "InvoiceAdjustmentCreate",
@@ -178,6 +193,8 @@ __all__ = [
     "User",
     "UserCreate",
     "UserRead",
+    "WaCredential",
+    "WaMessage",
     "WhatsAppAccount",
     "WhatsAppAccountCreate",
     "WhatsAppAccountRead",
