@@ -7,12 +7,14 @@ from app.models.dashboard import (
     AssistantTasksResponse,
     LeadsNeedingActionResponse,
     PaymentSummaryRead,
+    TodayActivityResponse,
 )
 from app.models.user import User
 from app.services.dashboard_service import (
     get_assistant_tasks as service_get_assistant_tasks,
     get_leads_needing_action as service_get_leads_needing_action,
     get_payment_summary as service_get_payment_summary,
+    get_today_activity as service_get_today_activity,
 )
 
 router = APIRouter()
@@ -69,4 +71,28 @@ def get_assistant_tasks(
         session=session,
         business_id=current_user.business_id,
         recently_done_limit=recently_done_limit,
+    )
+
+
+@router.get(
+    "/dashboard/today-activity",
+    response_model=TodayActivityResponse,
+)
+def get_today_activity(
+    limit: int = Query(default=50, ge=0, le=200),
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+) -> TodayActivityResponse:
+    """The dashboard's bottom-of-page "Today's Activity" diary: the owner's
+    high-signal actions today (follow-ups handled, calls/WhatsApp logged,
+    new enquiries, payments, invoices, manual stage moves), newest-first.
+
+    Owner actions only (`actor_type = human`) — assistant-driven actions
+    live in the separate `/dashboard/assistant-tasks` recently-done bucket.
+    `total` may exceed `len(items)` on a busy day; `counts_by_type` and
+    `money_collected_today` drive the always-visible summary line."""
+    return service_get_today_activity(
+        session=session,
+        current_user=current_user,
+        limit=limit,
     )

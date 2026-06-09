@@ -175,18 +175,25 @@ def get_lead_context(
         HUMAN/AI actors (matches the GONE_QUIET cascade filter so
         "recent activity" and "what counts as a touch" agree).
 
-    `ai_summary` is reserved for a future feature — returns None today.
-    The frontend hides the block entirely when null, so this is a
-    forward-compatible slot, not vaporware in the rendered UI."""
+    `ai_summary` surfaces the per-enquiry intelligence computed by
+    `enquiry_intelligence_service`: the rolling `activity_summary` (the
+    story so far) when present, else the `requirement_summary` (what the
+    customer wants). Null when neither has been computed yet (brand-new
+    lead, or the background build hasn't run) — the frontend hides the
+    block when null."""
     # 404 if cross-tenant — get_lead raises HTTPException.
     lead = get_lead(session, current_user, lead_id)
 
     followups = list_recent_followups_for_lead(session, lead.id, limit=3)
     activities = list_recent_human_activities_for_lead(session, lead.id, limit=3)
 
+    ai_summary = (lead.activity_summary or "").strip() or (
+        lead.requirement_summary or ""
+    ).strip() or None
+
     return LeadContextRead(
         enquiry_note=lead.notes or None,
-        ai_summary=None,
+        ai_summary=ai_summary,
         recent_followups=[
             LeadContextFollowupRead(
                 id=f.id,

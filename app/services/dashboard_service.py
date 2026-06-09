@@ -7,7 +7,7 @@ from uuid import UUID
 
 from sqlmodel import Session, select
 
-from app.core.time_utils import today_in
+from app.core.time_utils import day_bounds_utc, today_in
 from app.models.agent_task import AgentTask, TaskStatus
 from app.models.dashboard import (
     AssistantTaskSummary,
@@ -16,7 +16,10 @@ from app.models.dashboard import (
     LeadsNeedingActionResponse,
     OverdueInvoiceSummary,
     PaymentSummaryRead,
+    TodayActivityItem,
+    TodayActivityResponse,
 )
+from app.models.enums import LeadActivityType
 from app.models.lead import LeadRead, NextActionType
 from app.models.lead_followup import LeadFollowupRead
 from app.models.user import User
@@ -25,7 +28,10 @@ from app.repositories.dashboard_repository import (
     fetch_monthly_collections,
     fetch_outstanding_and_overdue,
 )
-from app.repositories.lead_activity_repository import negative_attempt_breakdown
+from app.repositories.lead_activity_repository import (
+    list_for_business_today,
+    negative_attempt_breakdown,
+)
 from app.repositories.lead_followup_repository import (
     get_open_followups_for_lead_ids,
 )
@@ -157,6 +163,105 @@ def get_leads_needing_action(
         items=enriched_items,
         total=len(needing),
         counts_by_type=counts_by_type,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Today's Activity feed — the dashboard's bottom-of-page daily diary.
+# ---------------------------------------------------------------------------
+
+# Curated high-signal set. Owner actions worth remembering at end of day.
+# Deliberately EXCLUDES low-signal bookkeeping (LEAD_UPDATED, PAYMENT_EDITED /
+# VOIDED / MOVED) — see docs/plans/dashboard-today-activity.md. STATUS_CHANGE
+# is included here but resolve-flow-paired rows are filtered in the repository.
+_TODAY_ACTIVITY_TYPES: tuple[LeadActivityType, ...] = (
+    LeadActivityType.CALL,
+    LeadActivityType.WHATSAPP,
+    LeadActivityType.MEETING,
+    LeadActivityType.NOTE,
+    LeadActivityType.STATUS_CHANGE,
+    LeadActivityType.FOLLOWUP_SCHEDULED,
+    LeadActivityType.FOLLOWUP_RESCHEDULED,
+    LeadActivityType.FOLLOWUP_COMPLETED,
+    LeadActivityType.FOLLOWUP_CANCELLED,
+    LeadActivityType.INVOICE_CREATED,
+    LeadActivityType.INVOICE_SENT,
+    LeadActivityType.INVOICE_APPROVED,
+    LeadActivityType.INVOICE_CANCELLED,
+    LeadActivityType.INVOICE_ADJUSTED,
+    LeadActivityType.PAYMENT_RECORDED,
+    LeadActivityType.LEAD_CREATED,
+)
+
+
+def get_today_activity(
+    session: Session,
+    current_user: User,
+    limit: int = 50,
+) -> TodayActivityResponse:
+    """Today's owner-logged activity, newest-first — the dashboard diary.
+
+    One indexed read over `lead_activities` scoped to the business's local
+    day. The result set is a single day's human actions (small), so we fetch
+    the whole qualifying set (under a defensive hard cap), compute the
+    summary rollups in Python, then slice `items` to `limit`."""
+    business = get_business_by_id(session, current_user.business_id)
+    tz = (business.timezone if business else None) or "Asia/Kolkata"
+    start_at, end_at = day_bounds_utc(today_in(tz), tz)
+
+    rows = list_for_business_today(
+        session,
+        business_id=current_user.business_id,
+        start_at=start_at,
+        end_at=end_at,
+        include_types=_TODAY_ACTIVITY_TYPES,
+    )
+
+    counts_by_type: dict[str, int] = {}
+    money_collected = 0.0
+    for activity, _title, _customer in rows:
+        counts_by_type[activity.type.value] = (
+            counts_by_type.get(activity.type.value, 0) + 1
+        )
+        if activity.type == LeadActivityType.PAYMENT_RECORDED:
+            amount = (activity.payload or {}).get("amount")
+            if isinstance(amount, (int, float)):
+                money_collected += float(amount)
+
+    capped = max(0, limit)
+    items = [
+        _to_today_item(activity, title, customer)
+        for activity, title, customer in rows[:capped]
+    ]
+
+    return TodayActivityResponse(
+        items=items,
+        total=len(rows),
+        counts_by_type=counts_by_type,
+        money_collected_today=money_collected,
+    )
+
+
+def _to_today_item(activity, lead_title, customer_name) -> TodayActivityItem:
+    """Flatten one (activity, lead_title, customer_name) tuple to the feed
+    shape, lifting the resolve-flow payload bits the frontend appends to the
+    line (next date / stage moved into)."""
+    payload = activity.payload if isinstance(activity.payload, dict) else {}
+    return TodayActivityItem(
+        id=activity.id,
+        type=activity.type.value,
+        description=activity.description,
+        lead_id=activity.lead_id,
+        lead_title=lead_title,
+        customer_name=customer_name,
+        created_at=activity.created_at.isoformat(),
+        channel=payload.get("channel"),
+        outcome=payload.get("outcome"),
+        result_action=payload.get("result_action"),
+        note=payload.get("note"),
+        followup_note=payload.get("followup_note"),
+        next_dt=payload.get("next_dt"),
+        to_stage_name=payload.get("to_stage_name"),
     )
 
 

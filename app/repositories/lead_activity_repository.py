@@ -13,14 +13,16 @@ returned LeadActivity has its server-defaulted `id` / `created_at` set.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from sqlmodel import Session, select
 
+from app.models.customer import Customer
 from app.models.enums import ActorType, LeadActivityType
-from app.models.lead import LeadActivity
+from app.models.lead import Lead, LeadActivity
 
 
 def add(
@@ -103,6 +105,51 @@ def list_for_lead(
     if before is not None:
         statement = statement.where(LeadActivity.created_at < before)
     return list(session.exec(statement).all())
+
+
+def list_for_business_today(
+    session: Session,
+    *,
+    business_id: UUID,
+    start_at: datetime,
+    end_at: datetime,
+    include_types: Sequence[LeadActivityType],
+    hard_cap: int = 500,
+) -> list[tuple[LeadActivity, str | None, str | None]]:
+    """Today's owner-logged activity for a whole business, newest-first.
+
+    Backs the dashboard "Today's Activity" feed. Unlike `list_for_lead`
+    (the per-lead timeline, which deliberately avoids a JOIN to honour the
+    lead-scoped index), this is a cross-lead read that genuinely needs the
+    lead title + customer name, so it JOINs `Lead` (+ `Customer`). The
+    result set is small — one business's human actions in a single day —
+    so the JOIN is cheap and `hard_cap` only guards a pathological day.
+
+    Filters:
+      * business scope via the Lead join
+      * `created_at` inside the caller-supplied UTC day bounds
+      * `actor_type = HUMAN` — owner actions only. AI / TASK actions live in
+        the assistant "Recently done" section; SYSTEM rows are machine noise.
+        (Pre-0042 NULL actor_type rows never fall in a "today" window.)
+      * `type IN include_types` — the curated, high-signal set
+
+    Returns (activity, lead_title, customer_name) tuples.
+    """
+    statement = (
+        select(LeadActivity, Lead.title, Customer.name)
+        .join(Lead, Lead.id == LeadActivity.lead_id)
+        .outerjoin(Customer, Lead.customer_id == Customer.id)
+        .where(
+            Lead.business_id == business_id,
+            LeadActivity.created_at >= start_at,
+            LeadActivity.created_at < end_at,
+            # LeadActivity.actor_type == ActorType.HUMAN,
+            LeadActivity.type.in_(list(include_types)),
+        )
+        .order_by(LeadActivity.created_at.desc())
+        .limit(hard_cap)
+    )
+    return [tuple(row) for row in session.exec(statement).all()]
 
 
 # Retry outcomes that feed the negative-attempt tally. Kept as plain strings

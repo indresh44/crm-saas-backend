@@ -120,6 +120,52 @@ class AssistantTaskSummary(SQLModel):
     short_label: str = ""
 
 
+class TodayActivityItem(SQLModel):
+    """One owner-logged activity row, flattened for the dashboard's
+    "Today's Activity" feed.
+
+    `description` is already human-readable (stamped at write time). The
+    optional payload-derived fields let the frontend enrich a follow-up
+    `resolve` line with what happened next — e.g. append "→ Quote Sent" or
+    "next 12 Jun" — without re-parsing the JSONB. They are NULL for activity
+    types that don't carry them."""
+
+    id: UUID
+    type: str                       # LeadActivityType value
+    description: str
+    lead_id: Optional[UUID] = None
+    lead_title: Optional[str] = None
+    customer_name: Optional[str] = None
+    created_at: str                 # ISO; frontend formats to local time
+
+    # Lifted from payload so the frontend can compose a descriptive line
+    # ("Called — Interested · re: asking for quote · → Quote Sent") instead
+    # of leaning on `description`, which for a resolve row collapses to just
+    # the note. All NULL for activity types that don't carry them.
+    channel: Optional[str] = None        # "call" | "whatsapp" (resolve rows)
+    outcome: Optional[str] = None        # Outcome enum value
+    result_action: Optional[str] = None  # rescheduled / next_followup / ...
+    note: Optional[str] = None           # owner's free-text note on the action
+    followup_note: Optional[str] = None  # the follow-up's topic ("Regarding…")
+    next_dt: Optional[str] = None        # resulting reschedule / next date
+    to_stage_name: Optional[str] = None  # stage moved into, if any
+
+
+class TodayActivityResponse(SQLModel):
+    """The dashboard's bottom-of-page daily diary.
+
+    `items` is newest-first, capped at the request limit. `total` is the
+    full count of today's qualifying rows (so the UI can show "+N more").
+    `counts_by_type` drives the always-visible summary line; the optional
+    `money_collected_today` sums today's `payment_recorded` amounts so the
+    summary can show a "₹X collected" chip."""
+
+    items: list[TodayActivityItem]
+    total: int
+    counts_by_type: dict[str, int]
+    money_collected_today: float = 0.0
+
+
 class AssistantTasksResponse(SQLModel):
     """Four-bucket grouping returned by GET /dashboard/assistant-tasks.
 
